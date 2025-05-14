@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import open3d as o3d
-def batch_backproject(depths, rgbs, fx, fy, cx, cy):
+def get_points_and_colors(depths, rgbs, fx, fy, cx, cy):
     """
     Back-project a batch of depth and RGB images to 3D point clouds.
     
@@ -39,6 +39,45 @@ def batch_backproject(depths, rgbs, fx, fy, cx, cy):
     
     return points, colors
 
+
+def iou_2d(box1: np.ndarray, box2: np.ndarray) -> float:
+    """
+    Compute the 2D Intersection over Union (IoU) of two axis-aligned boxes.
+
+    Args:
+        box1: array_like of shape (4,), [xmin, ymin, xmax, ymax]
+        box2: array_like of shape (4,), [xmin, ymin, xmax, ymax]
+
+    Returns:
+        IoU value (float) in [0.0, 1.0].
+    """
+    # Ensure inputs are numpy arrays
+    b1 = np.array(box1, dtype=np.float64)
+    b2 = np.array(box2, dtype=np.float64)
+
+    # Intersection rectangle
+    inter_xmin = max(b1[0], b2[0])
+    inter_ymin = max(b1[1], b2[1])
+    inter_xmax = min(b1[2], b2[2])
+    inter_ymax = min(b1[3], b2[3])
+
+    # Compute intersection width and height (clamp to zero if no overlap)
+    inter_w = max(0.0, inter_xmax - inter_xmin)
+    inter_h = max(0.0, inter_ymax - inter_ymin)
+    inter_area = inter_w * inter_h  # area of overlap :contentReference[oaicite:0]{index=0}
+
+    # Areas of the input boxes
+    area1 = max(0.0, b1[2] - b1[0]) * max(0.0, b1[3] - b1[1])
+    area2 = max(0.0, b2[2] - b2[0]) * max(0.0, b2[3] - b2[1])
+
+    # Union area
+    union_area = area1 + area2 - inter_area
+    if union_area <= 0:
+        return 0.0  # avoid division by zero :contentReference[oaicite:1]{index=1}
+
+    # IoU is overlap divided by union :contentReference[oaicite:2]{index=2}
+    return inter_area / union_area
+
 def iou_3d(bbox1: o3d.geometry.AxisAlignedBoundingBox, bbox2: o3d.geometry.AxisAlignedBoundingBox) -> float:
     """
     Compute the 3D Intersection over Union (IoU) of two Open3D axis-aligned bounding boxes.
@@ -74,3 +113,28 @@ def iou_3d(bbox1: o3d.geometry.AxisAlignedBoundingBox, bbox2: o3d.geometry.AxisA
         return 0.0
 
     return float(inter_vol / union_vol)
+
+
+def nms(boxes, scores, iou_threshold, three_d=False):
+    iou_func = iou_3d if three_d else iou_2d
+    original_indicies = list(range(len(scores)))
+    mega_array = zip(scores, boxes, original_indicies)
+    mega_array = sorted(mega_array, key=lambda x: x[0], reverse=True)
+    keep_idx = []
+    while len(mega_array) > 0:
+        score, bbox, original_index = mega_array[0]
+        keep_idx.append(original_index)
+
+        mega_array = mega_array[1:]
+
+        if len(mega_array) == 0:
+            break
+
+        # Calculate IOU
+        ious = []
+        for _, bbox2, _ in mega_array:
+            ious.append(iou_func(bbox, bbox2))
+
+        # Filter out boxes with IOU > threshold
+        mega_array = [item for item, iou in zip(mega_array, ious) if iou < iou_threshold]
+    return keep_idx
