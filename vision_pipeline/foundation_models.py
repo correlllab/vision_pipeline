@@ -9,13 +9,17 @@ from capture_cameras import get_cap, RealSenseCamera
 import open3d as o3d
 import torch.nn.functional as F
 
+from open3d.visualization import gui, rendering
 
 import numpy as np
-from torchvision.ops import clip_boxes_to_image
+from torchvision.ops import clip_boxes_to_image, remove_small_boxes
 from utils import get_points_and_colors, nms
+import json
+import random
+config = json.load(open("config.json"))
 
 class OWLv2:
-    def __init__(self, iou_th=0.25, discard_percentile = 0.5):
+    def __init__(self):
         """
         Initializes the OWLv2 model and processor.
         Parameters:
@@ -34,9 +38,7 @@ class OWLv2:
         self.model.to(self.device)
         self.model.eval()  # set model to evaluation mode
 
-        # Set the IoU threshold and discard percentile
-        self.iou_th = iou_th
-        self.discard_percentile = discard_percentile
+        
     def predict(self, img, querries, debug = False):
         """
         Gets realsense frames
@@ -59,30 +61,53 @@ class OWLv2:
         results = self.processor.post_process_grounded_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0)[0]
 
         # Extract labels, boxes, and scores
+        label_lookup = {i: label for i, label in enumerate(querries)}
         all_labels = results["labels"]
         all_boxes = results["boxes"]
         all_boxes = clip_boxes_to_image(all_boxes, img.shape[:2])
         all_scores = results["scores"]
+        if debug:
+            temp_pred = {}
+            for i, label in enumerate(querries):
+                mask = all_labels == i
+                text_label = label_lookup[i]
+                temp_pred[text_label] = {"boxes": all_boxes[mask], "scores": all_scores[mask]}
+            display_owl(img, temp_pred, window_prefix=f"All Boxes")
+
+        keep = remove_small_boxes(all_boxes, min_size=config["min_2d_box_side"])
+        small_removed_boxes = all_boxes[keep]
+        small_removed_scores = all_scores[keep]
+        small_removed_labels = all_labels[keep]
+        if debug:
+            temp_pred = {}
+            for i, label in enumerate(querries):
+                mask = small_removed_labels == i
+                text_label = label_lookup[i]
+                temp_pred[text_label] = {"boxes": small_removed_boxes[mask], "scores": small_removed_scores[mask]}
+            display_owl(img, temp_pred, window_prefix=f"Small Boxes Removed")
 
         #get integer to text label mapping
-        label_lookup = {i: label for i, label in enumerate(querries)}
         out_dict = {}
         #for each querry, get the boxes and scores and perform NMS
         for i, label in enumerate(querries):
             text_label = label_lookup[i]
 
             # Filter boxes and scores for the current label
-            mask = all_labels == i
-            instance_boxes = all_boxes[mask]
-            instance_scores = all_scores[mask]
-
+            mask = small_removed_labels == i
+            instance_boxes = small_removed_boxes[mask]
+            instance_scores = small_removed_scores[mask]
+            
             #Do NMS for the current label
-            keep = nms(instance_boxes.cpu(), instance_scores.cpu(), iou_threshold=self.iou_th)
-            pruned_boxes  = instance_boxes[keep]
-            pruned_scores = instance_scores[keep]
+            pruned_boxes, pruned_scores, _ = nms(instance_boxes.cpu(), instance_scores.cpu(), iou_threshold=config["iou_2d"], three_d=False)
+            pruned_boxes  = torch.stack(pruned_boxes)
+            pruned_scores = torch.stack(pruned_scores)
+
+            if debug:
+                display_owl(img, {text_label: {"boxes": pruned_boxes, "scores": pruned_scores}}, window_prefix=f"Post NMS ")
+            #print(f"{pruned_boxes.shape=}, {pruned_scores.shape=}")
 
             #Get rid of low scores
-            threshold = torch.quantile(pruned_scores, self.discard_percentile)
+            threshold = torch.quantile(pruned_scores, config["owlv2_discard_percentile"])
             keep = pruned_scores > threshold
             filtered_scores = pruned_scores[keep]
 
@@ -96,12 +121,14 @@ class OWLv2:
             if debug:
                 print(f"{text_label=}")
                 print(f"    {all_labels.shape=}, {all_boxes.shape=}, {all_scores.shape=}")
+                print(f"    {small_removed_boxes.shape=}, {small_removed_scores.shape=}, {small_removed_labels.shape=}")
                 print(f"    {instance_scores.shape=}, {instance_boxes.shape=}")
                 print(f"    {pruned_boxes.shape=}, {pruned_scores.shape=}")
                 print(f"    {len(keep)=}")
                 print(f"    {filtered_scores.shape=}, {filtered_boxes.shape=}")
                 print(f"    {threshold=}")
                 print()
+                display_owl(img, {text_label: {"boxes": filtered_boxes, "scores": filtered_scores}}, window_prefix=f"Top {config['owlv2_discard_percentile']} quantile ")
 
 
         if debug:
@@ -113,13 +140,9 @@ class OWLv2:
         return f"OWLv2: {self.model.device}"
     def __repr__(self):
         return self.__str__()
-def test_OWL(left_img):
-    
-    owl = OWLv2()
-    predicitons = owl.predict(left_img, ["phone", "water bottle", "can"], debug=True)
-    #print(f"{predicitons=}")
+def display_owl(img, predicitons, window_prefix = ""):
     for querry_object, prediction in predicitons.items():
-        display_img = left_img.copy()
+        display_img = img.copy()
         for bbox, score in zip(prediction["boxes"], prediction["scores"]):
             #bbox = prediction["box"]
             #score = prediction["score"]
@@ -127,14 +150,19 @@ def test_OWL(left_img):
             cv2.rectangle(display_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
             cv2.putText(display_img, f"{querry_object} {score:.4f}", (x_min, y_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         # Display the image with bounding boxes
-        cv2.imshow(f"{querry_object}", display_img)
+        cv2.imwrite(f"./figures/OWLV2/{window_prefix}{querry_object}.png", display_img)
+        cv2.imshow(f"{window_prefix}{querry_object}", display_img)
         cv2.waitKey(1)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+def test_OWL(left_img, debug):
+    owl = OWLv2()
+    predicitons = owl.predict(left_img, config["test_querys"], debug=debug)
+    display_owl(left_img, predicitons)
     return predicitons
 #Class to use sam2
 class SAM2_PC:
-    def __init__(self, iou_th=0.1):
+    def __init__(self,):
         """
         Initializes the SAM2 model and processor.
         Parameters:
@@ -143,7 +171,6 @@ class SAM2_PC:
         self.sam_predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2-hiera-large")
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.device = torch.device("mps") if torch.backends.mps.is_available() else self.device
-        self.iou_th = iou_th
     def predict(self, rgb_img, depth_img, bbox, scores, intrinsics, debug = False):
         """
         Predicts 3D point clouds from RGB and depth images and bounding boxes using SAM2.
@@ -177,16 +204,25 @@ class SAM2_PC:
         masked_depth = depth_img[None, ...] * sam_mask
         masked_rgb = rgb_img[None, ...] * sam_mask[..., None]
         if debug:
+            n_fig = 2
             print(f"{masked_depth.shape=}, {masked_rgb.shape=}")
-            fig, ax = plt.subplots(5, 3)
-            for i in range(min(5, sam_mask.shape[0])):
-                bbox_img = rgb_img.copy()
+            fig, ax = plt.subplots(n_fig, 4, figsize=(20, 10))
+            ax[0,0].set_title("RGB")
+            ax[0,1].set_title("Depth")
+            ax[0,2].set_title("Masked RGB")
+            ax[0,3].set_title("Masked Depth")
+            for i in range(min(n_fig, sam_mask.shape[0])):
+                bbox_rgb = rgb_img.copy()
+                bbox_depth = depth_img.copy()
                 x_min, y_min, x_max, y_max = map(int, bbox[i])
-                cv2.rectangle(bbox_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-                ax[i, 0].imshow(bbox_img)
-                ax[i, 1].imshow(masked_rgb[i])
-                ax[i, 2].imshow(masked_depth[i])
+                cv2.rectangle(bbox_rgb, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+                cv2.rectangle(bbox_depth, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+                ax[i, 0].imshow(bbox_rgb)
+                ax[i, 1].imshow(bbox_depth)
+                ax[i, 2].imshow(masked_rgb[i])
+                ax[i, 3].imshow(masked_depth[i])
             fig.tight_layout()
+            fig.savefig(f"./figures/SAM2/masks_{random.randint(0,100)}.png")
             plt.show()
         
         #Get points and colors from masked depth and rgb images
@@ -213,8 +249,10 @@ class SAM2_PC:
             cls = cols_cpu[i]         # (N,3)
 
             # mask out void points
-            valid = pts[:, 2] > 0
-            if valid.sum() <  100:
+            depths = pts[:, 2]
+            valid = (depths > config["min_depth"]) & (depths < config["max_depth"])
+
+            if valid.sum() <  config["min_3d_points"]:
                 continue
             pts_valid = pts[valid]
             cls_valid = cls[valid]
@@ -223,9 +261,12 @@ class SAM2_PC:
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(pts_valid.numpy())
             pcd.colors = o3d.utility.Vector3dVector(cls_valid.numpy()/255)
+            pcd.voxel_down_sample(voxel_size=config["voxel_size"])
             # Apply statistical outlier removal to denoise the point cloud
-            pcd, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-
+            if config["statistical_outlier_removal"]:
+                pcd, ind = pcd.remove_statistical_outlier(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
+            if config["radius_outlier_removal"]:
+                pcd, ind = pcd.remove_radius_outlier(nb_points=config["radius_nb_points"], radius=config["radius_radius"])
             bbox = pcd.get_axis_aligned_bounding_box()
             bbox.color = (1.0, 0.0, 0.0)  # red 
             full_pcds.append(pcd)
@@ -233,12 +274,8 @@ class SAM2_PC:
             full_bounding_boxes_3d.append(bbox)
 
         # Perform NMS on the 3D bounding boxes
-        keep = nms(full_bounding_boxes_3d, full_scores, iou_threshold=self.iou_th, three_d=True)
-        
-        # Filter the point clouds, bounding boxes, and scores based on NMS results
-        reduced_pcds = [pcd for i, pcd in enumerate(full_pcds) if i in keep]
-        reduced_bounding_boxes_3d = [bbox for i, bbox in enumerate(full_bounding_boxes_3d) if i in keep]
-        reduced_scores = [score for i, score in enumerate(full_scores) if i in keep]
+        reduced_bounding_boxes_3d, reduced_scores, reduced_extras = nms(full_bounding_boxes_3d, full_scores, extra_data_lists=[full_pcds], iou_threshold=config["iou_3d"], three_d=True)
+        reduced_pcds = reduced_extras[0]
         
         # Normalize the scores
         reduced_scores = torch.tensor(reduced_scores)
@@ -253,26 +290,45 @@ class SAM2_PC:
         return f"SAM2: {self.sam_predictor.model.device}"
     def __repr__(self):
         return self.__str__()
-def test_sam(rgb_img, depth_img, predictions, intrinsics):
+    
+
+
+def display_sam2(point_clouds, boxes, scores, window_prefix=""):
+    # 1) Initialize the GUI app (only once per program)
+    app = gui.Application.instance
+    app.initialize()
+
+    # 2) Create the O3DVisualizer window
+    vis = o3d.visualization.O3DVisualizer(
+        window_prefix + "PointClouds", 1024, 768
+    )
+    vis.show_settings = True
+
+    # 3) Add geometries by name
+    vis.add_geometry("CameraFrame",
+                     o3d.geometry.TriangleMesh.create_coordinate_frame(
+                         size=0.2, origin=[0,0,0]))
+    for idx, pc in enumerate(point_clouds):
+        vis.add_geometry(f"PointCloud{idx}", pc)
+    for idx, box in enumerate(boxes):
+        vis.add_geometry(f"Box{idx}", box)
+
+    # 4) Annotate each box’s center with its score
+    for box, score in zip(boxes, scores):
+        center = box.get_center()  # AABB or mesh both support this
+        vis.add_3d_label(center, f"{float(score):.2f}")
+
+    # 5) Finalize and run
+    vis.reset_camera_to_default()
+    app.add_window(vis)
+    app.run()
+
+def test_sam(rgb_img, depth_img, predictions, intrinsics, debug):
     sam = SAM2_PC()
     for querry_object, canditates in predictions.items():
         print("\n\n")
-        point_clouds, boxes, scores = sam.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=True)
-            
-        camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
-            size=0.2,    # e.g. half a meter
-            origin=[0, 0, 0]
-        )
-
-        # 2) Start your geometry list with that axis
-        geoms = [camera_frame]
-        geoms += point_clouds
-        geoms += boxes
-
-
-
-        o3d.visualization.draw_geometries(geoms, window_name=f"{querry_object} PointClouds")
-    #print(f"{len(point_clouds)=}, {len(boxes)=}")
+        point_clouds, boxes, scores = sam.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=debug)
+        display_sam2(point_clouds, boxes, scores, window_prefix=f"{querry_object} ")   
     return None
 
 
@@ -286,10 +342,10 @@ if __name__=="__main__":
         exit(1)
     
     print(f"\n\nTESTING OWL")
-    predictions = test_OWL(rgb_img)
+    predictions = test_OWL(rgb_img, debug=False)
     
-    print(f"\n\nTESTING SAM")
-    test_sam(rgb_img, depth_img, predictions, I)    
+    #print(f"\n\nTESTING SAM")
+    test_sam(rgb_img, depth_img, predictions, I, debug=True)    
 
 
 
