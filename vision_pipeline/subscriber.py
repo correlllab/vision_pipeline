@@ -1,130 +1,117 @@
 #!/usr/bin/env python3
 import sys
+import threading
+import time
+
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
-from realsense2_camera_msgs.msg import RGBD
-from cv_bridge import CvBridge
-import cv2
-import numpy as np
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+
+from realsense2_camera_msgs.msg import RGBD
+from sensor_msgs.msg import CameraInfo
+from cv_bridge import CvBridge
+import numpy as np
+import cv2
 
 class RealSenseSubscriber(Node):
     """
-    Subscribes to RGB, Depth, and RGBD topics for a given camera namespace under /realsense.
-    Displays each stream in its own OpenCV window.
+    Subscribes to the RGBD and CameraInfo topics for a given camera namespace under /realsense.
+    Stores the latest RGB-D images for display.
 
     camera_key: e.g. 'head' or 'left_hand'.
-    display_rate_sec: how often (seconds) to refresh the windows.
     """
-    def __init__(self, camera_key: str, display_rate_sec: float = 1.0):
-        ns_key = camera_key.replace(' ', '_')
-        node_name = f'{ns_key}_subscriber'
+    def __init__(self, camera_key: str):
+        node_name = f"{camera_key.replace(' ', '_')}_subscriber"
         super().__init__(node_name)
+        self.camera_key = camera_key
+        self.bridge = CvBridge()
+        self.latest_rgb = None      # Latest BGR image
+        self.latest_depth = None    # Latest depth image (normalized for display)
+        self._lock = threading.Lock()
 
-        sensor_qos = QoSProfile(
+        # QoS for sensor data
+        qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
             depth=5
         )
 
-        print(f"[INIT] Node name: {node_name}")
+        # Subscribe to combined RGBD topic
+        self.create_subscription(
+            RGBD,
+            f"/realsense/{camera_key}/rgbd",
+            self._rgbd_callback,
+            qos
+        )
 
-        self.ns = f'realsense/{ns_key}'  # no leading slash for window names
-        print(f"[INIT] Subscriber namespace: /{self.ns}")
-
-        self.bridge = CvBridge()
-        self.rgb_image = None
-        self.depth_image = None
-        self.rgbd_image = None
-
-        # Create separate windows
-        self.win_rgb = f'{self.ns}/color'
-        self.win_depth = f'{self.ns}/aligned_depth'
-        self.win_rgbd_rgb = f'{self.ns}/rgbd_rgb'
-        self.win_rgbd_depth = f'{self.ns}/rgbd_depth'
-        for w in [self.win_rgb, self.win_depth, self.win_rgbd_rgb, self.win_rgbd_depth]:
-            cv2.namedWindow(w, cv2.WINDOW_NORMAL)
-            print(f"[INIT] Created window: {w}")
-
-        # Subscriptions
-        topic_rgb = f'/{self.ns}/color/image_raw'
-        self.create_subscription(Image, topic_rgb, self._rgb_callback, sensor_qos)
-        print(f"[INIT] Subscribed to RGB topic: {topic_rgb}")
-
-        topic_depth = f'/{self.ns}/aligned_depth_to_color/image_raw'
-        self.create_subscription(Image, topic_depth, self._depth_callback, sensor_qos)
-        print(f"[INIT] Subscribed to Depth topic: {topic_depth}")
-
-        topic_rgbd = f'/{self.ns}/rgbd'
-        self.create_subscription(RGBD, topic_rgbd, self._rgbd_callback, sensor_qos)
-        print(f"[INIT] Subscribed to RGBD topic: {topic_rgbd}")
-
-        # Timer for display
-        self.create_timer(display_rate_sec, self.display_images)
-        print(f"[INIT] Display timer set to {display_rate_sec} sec")
-
-    def _rgb_callback(self, msg: Image):
-        self.rgb_image = msg
-        print(f"[CALLBACK] RGB received @ {msg.header.stamp.sec}.{msg.header.stamp.nanosec}")
-
-    def _depth_callback(self, msg: Image):
-        self.depth_image = msg
-        print(f"[CALLBACK] Depth received @ {msg.header.stamp.sec}.{msg.header.stamp.nanosec}")
+        # Spin in background thread
+        self._executor = SingleThreadedExecutor()
+        self._executor.add_node(self)
+        self._spin_thread = threading.Thread(
+            target=self._executor.spin,
+            daemon=True
+        )
+        self._spin_thread.start()
 
     def _rgbd_callback(self, msg: RGBD):
-        self.rgbd_image = msg
-        print(f"[CALLBACK] RGBD received @ {msg.header.stamp.sec}.{msg.header.stamp.nanosec}")
+        # Convert and store latest RGB and depth images
+        rgb_img = self.bridge.imgmsg_to_cv2(msg.rgb, 'bgr8')
+        depth_img = self.bridge.imgmsg_to_cv2(msg.depth, 'passthrough')
+        # Normalize depth for display
+        depth_norm = cv2.normalize(depth_img, None, 0, 255, cv2.NORM_MINMAX)
+        depth_display = cv2.cvtColor(depth_norm.astype(np.uint8), cv2.COLOR_GRAY2BGR)
+        with self._lock:
+            self.latest_rgb = rgb_img
+            self.latest_depth = depth_display
 
-    def display_images(self):
-        print("[DISPLAY] Refreshing windows")
+    def display(self):
+        """
+        Display the latest RGB and depth images in OpenCV windows.
+        """
+        with self._lock:
+            rgb = self.latest_rgb.copy() if self.latest_rgb is not None else np.zeros((480, 640, 3), np.uint8)
+            depth = self.latest_depth.copy() if self.latest_depth is not None else np.zeros((480, 640, 3), np.uint8)
 
-        # RGB
-        if self.rgb_image:
-            cv_rgb = self.bridge.imgmsg_to_cv2(self.rgb_image, 'bgr8')
-        else:
-            cv_rgb = np.zeros((480,640,3), np.uint8)
-        cv2.imshow(self.win_rgb, cv_rgb)
+        cv2.imshow(f"{self.camera_key}/RGB", rgb)
+        cv2.imshow(f"{self.camera_key}/Depth", depth)
 
-        # Depth
-        if self.depth_image:
-            d_raw = self.bridge.imgmsg_to_cv2(self.depth_image, 'passthrough')
-            d_norm = cv2.normalize(d_raw, None, 0, 255, cv2.NORM_MINMAX)
-            cv_depth = cv2.cvtColor(d_norm.astype(np.uint8), cv2.COLOR_GRAY2BGR)
-        else:
-            cv_depth = np.zeros_like(cv_rgb)
-        cv2.imshow(self.win_depth, cv_depth)
-
-        # RGBD rgb
-        if self.rgbd_image:
-            cv_rgbd_rgb = self.bridge.imgmsg_to_cv2(self.rgbd_image.rgb, 'bgr8')
-        else:
-            cv_rgbd_rgb = np.zeros_like(cv_rgb)
-        cv2.imshow(self.win_rgbd_rgb, cv_rgbd_rgb)
-
-        # RGBD depth
-        if self.rgbd_image:
-            dr = self.bridge.imgmsg_to_cv2(self.rgbd_image.depth, 'passthrough')
-            dr_norm = cv2.normalize(dr, None, 0, 255, cv2.NORM_MINMAX)
-            cv_rgbd_depth = cv2.cvtColor(dr_norm.astype(np.uint8), cv2.COLOR_GRAY2BGR)
-        else:
-            cv_rgbd_depth = np.zeros_like(cv_rgb)
-        cv2.imshow(self.win_rgbd_depth, cv_rgbd_depth)
-
-        cv2.waitKey(1)
+    def shutdown(self):
+        """
+        Stop internal executor and destroy node.
+        """
+        self._executor.shutdown()
+        self.destroy_node()
 
 
 def main(args=None):
     rclpy.init(args=args)
-    camera_key = sys.argv[1] if len(sys.argv)>1 else 'left_hand'
-    print(f"[MAIN] Starting subscriber for camera: {camera_key}")
-    node = RealSenseSubscriber(camera_key, display_rate_sec=1.0)
+    cams = sys.argv[1:] if len(sys.argv) > 1 else ['head', 'left_hand']
+
+    # Instantiate subscribers and create display windows
+    subs = []
+    for cam in cams:
+        sub = RealSenseSubscriber(cam)
+        subs.append(sub)
+        cv2.namedWindow(f"{cam}/RGB", cv2.WINDOW_NORMAL)
+        cv2.namedWindow(f"{cam}/Depth", cv2.WINDOW_NORMAL)
+
     try:
-        rclpy.spin(node)
+        while rclpy.ok():
+            # Display images for each subscriber
+            for sub in subs:
+                sub.display()
+
+            # WaitKey for refresh and exit
+            if cv2.waitKey(30) & 0xFF == ord('q'):
+                break
+            time.sleep(0.03)
+
     except KeyboardInterrupt:
-        print("[MAIN] Shutdown request")
+        pass
     finally:
-        node.destroy_node()
+        for sub in subs:
+            sub.shutdown()
         cv2.destroyAllWindows()
         rclpy.shutdown()
 
