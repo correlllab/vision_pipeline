@@ -17,16 +17,16 @@ class VisionPipe:
         self.sam2 = SAM2_PC()
         self.tracked_objects = {}
     def update(self, rgb_img, depth_img, querries, I, obs_pose=[0,0,0,0,0,0], debug = False):
-        predictions_2d = self.owv2.predict(rgb_img, querries)
+        predictions_2d = self.owv2.predict(rgb_img, querries, debug=debug)
         if debug:
             display_owl(rgb_img, predictions_2d)
         predictions_3d = {}
         transformation_matrix = pose_to_matrix(obs_pose)
         for object, prediction_2d in predictions_2d.items():
-            pcds, box_3d, scores = self.sam2.predict(rgb_img, depth_img, prediction_2d["boxes"], prediction_2d["scores"], I)
+            pcds, box_3d, scores = self.sam2.predict(rgb_img, depth_img, prediction_2d["boxes"], prediction_2d["scores"], I, debug=debug)
             pcds = [pcd.transform(transformation_matrix) for pcd in pcds]
             if debug:
-                display_sam2(pcds, box_3d, scores, window_prefix=f"{object} ") 
+                display_sam2(pcds, box_3d, scores, window_prefix=f"{object} ")
             predictions_3d[object] = {"boxes": box_3d, "scores": scores, "pcds": pcds}
             if debug:
                 print(f"{object=}")
@@ -34,7 +34,7 @@ class VisionPipe:
 
         self.update_tracked_objects(predictions_3d, obs_pose, I, debug=debug)
         return self.tracked_objects
-    
+
     def update_tracked_objects(self, predictions_3d, obs_pose, I, debug = False):
         for object, predictions in predictions_3d.items():
             if object not in self.tracked_objects:
@@ -69,15 +69,14 @@ class VisionPipe:
                         if config["radius_outlier_removal"]:
                             pcd, ind = pcd.remove_radius_outlier(nb_points=config["radius_nb_points"], radius=config["radius_radius"])
                         self.tracked_objects[object]["boxes"][match_idx] = self.tracked_objects[object]["pcds"][match_idx].get_axis_aligned_bounding_box()
-                        w = config["new_sample_weight"]
 
                         # existing belief and new observation
                         b = self.tracked_objects[object]["scores"][match_idx]
                         x = candidate_score
 
                         # weighted‐power update
-                        num = b**w * x**(1-w)
-                        den = num + (1-b)**w * (1-x)**(1-w)
+                        num = b * x
+                        den = num + ((1-b) * (1-x))
 
                         self.tracked_objects[object]["scores"][match_idx] = num / den
                         updated[match_idx] = True
@@ -85,7 +84,7 @@ class VisionPipe:
                     if obj_updated:
                         continue
                     centroid = pcd.get_center()
-                    
+
                     if not in_image(centroid, obs_pose, I):
                        continue
                     p_fn = config["false_negative_rate"]
@@ -119,7 +118,7 @@ class VisionPipe:
             top_candiate = candiates["pcds"][argmax1]
             return top_candiate, maxval1
         raise ValueError(f"Object {querry} not found in tracked objects.")
-    
+
     def vis_belief(self, querry):
         if querry not in self.tracked_objects:
             raise ValueError(f"Object {querry} not found in tracked objects.")
@@ -151,7 +150,7 @@ class VisionPipe:
         vis.reset_camera_to_default()
         app.add_window(vis)
         app.run()
-    
+
     def display(self):
         app = gui.Application.instance
         app.initialize()
@@ -204,39 +203,6 @@ def test_VP(cap):
         # for q in config["test_querys"]:
         #     vp.vis_belief(q)
     vp.display()
-
-    app = gui.Application.instance
-    app.initialize()
-
-    # 2) Create an O3DVisualizer window
-    vis = o3d.visualization.O3DVisualizer("Final finding", 1024, 768)
-    vis.show_settings = True
-
-    # 3) Add a camera‐frame axis
-    camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
-        size=0.2,
-        origin=[0, 0, 0]
-    )
-    vis.add_geometry("CameraFrame", camera_frame)
-
-    # 4) For each query: get its point cloud + belief, add both geometry + label
-    for q in config["test_querys"]:
-        pcd, belief = vp.querry(q)
-        # add the raw point cloud
-        vis.add_geometry(f"pcd_{q}", pcd)
-        # compute a label position (centroid of the cloud)
-        pts = np.asarray(pcd.points)
-        if pts.size:
-            center = pts.mean(axis=0)
-        else:
-            center = np.array([0.0, 0.0, 0.0])
-        # place a 3D text label of the belief
-        vis.add_3d_label(center, f"{q}:{belief:.3f}")
-
-    # 5) Finalize camera & run
-    vis.reset_camera_to_default()
-    app.add_window(vis)
-    app.run()
 
 
 if __name__ == "__main__":

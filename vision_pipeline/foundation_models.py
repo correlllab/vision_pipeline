@@ -46,7 +46,7 @@ class OWLv2:
         self.model.to(self.device)
         self.model.eval()  # set model to evaluation mode
 
-        
+
     def predict(self, img, querries, debug = False):
         """
         Gets realsense frames
@@ -104,7 +104,7 @@ class OWLv2:
             mask = small_removed_labels == i
             instance_boxes = small_removed_boxes[mask]
             instance_scores = small_removed_scores[mask]
-            
+
             #Do NMS for the current label
             pruned_boxes, pruned_scores, _ = nms(instance_boxes.cpu(), instance_scores.cpu(), iou_threshold=config["iou_2d"], three_d=False)
             pruned_boxes  = torch.stack(pruned_boxes)
@@ -232,7 +232,7 @@ class SAM2_PC:
             fig.tight_layout()
             fig.savefig(f"{fig_dir}/SAM2/masks_{random.randint(0,100)}.png")
             plt.show()
-        
+
         #Get points and colors from masked depth and rgb images
         tensor_depth = torch.from_numpy(masked_depth).to(self.device)
         tensor_rgb = torch.from_numpy(masked_rgb).to(self.device)
@@ -258,7 +258,10 @@ class SAM2_PC:
 
             # mask out void points
             depths = pts[:, 2]
-            valid = (depths > config["min_depth"]) & (depths < config["max_depth"])
+            valid = (depths > config["min_depth"])# & (depths < config["max_depth"])
+            if debug:
+                print(f"{valid.sum()=}")
+
 
             if valid.sum() <  config["min_3d_points"]:
                 continue
@@ -276,7 +279,7 @@ class SAM2_PC:
             if config["radius_outlier_removal"]:
                 pcd, ind = pcd.remove_radius_outlier(nb_points=config["radius_nb_points"], radius=config["radius_radius"])
             bbox = pcd.get_axis_aligned_bounding_box()
-            bbox.color = (1.0, 0.0, 0.0)  # red 
+            bbox.color = (1.0, 0.0, 0.0)  # red
             full_pcds.append(pcd)
             full_scores.append(scores[i])
             full_bounding_boxes_3d.append(bbox)
@@ -284,7 +287,7 @@ class SAM2_PC:
         # Perform NMS on the 3D bounding boxes
         reduced_bounding_boxes_3d, reduced_scores, reduced_extras = nms(full_bounding_boxes_3d, full_scores, extra_data_lists=[full_pcds], iou_threshold=config["iou_3d"], three_d=True)
         reduced_pcds = reduced_extras[0]
-        
+
         # Normalize the scores
         reduced_scores = torch.tensor(reduced_scores)
         reduced_scores = reduced_scores / reduced_scores.sum()
@@ -292,27 +295,30 @@ class SAM2_PC:
             print(f"   {len(full_pcds)=}, {len(full_scores)=}, {len(full_bounding_boxes_3d)=}")
             print(f"   {len(reduced_pcds)=}, {len(reduced_bounding_boxes_3d)=}, {reduced_scores.shape=}")
 
-        
+
         return reduced_pcds, reduced_bounding_boxes_3d, reduced_scores
     def __str__(self):
         return f"SAM2: {self.sam_predictor.model.device}"
     def __repr__(self):
         return self.__str__()
-    
+
 
 
 def display_sam2(point_clouds, boxes, scores, window_prefix=""):
     # 1) Initialize the GUI app (only once per program)
+    print("Initializing GUI app...")
     app = gui.Application.instance
     app.initialize()
 
     # 2) Create the O3DVisualizer window
+    print("Creating O3DVisualizer window...")
     vis = o3d.visualization.O3DVisualizer(
         window_prefix + "PointClouds", 1024, 768
     )
     vis.show_settings = True
 
     # 3) Add geometries by name
+    print("Adding geometries...")
     vis.add_geometry("CameraFrame",
                      o3d.geometry.TriangleMesh.create_coordinate_frame(
                          size=0.2, origin=[0,0,0]))
@@ -322,11 +328,13 @@ def display_sam2(point_clouds, boxes, scores, window_prefix=""):
         vis.add_geometry(f"Box{idx}", box)
 
     # 4) Annotate each box’s center with its score
+    print("Annotating boxes...")
     for box, score in zip(boxes, scores):
         center = box.get_center()  # AABB or mesh both support this
         vis.add_3d_label(center, f"{float(score):.2f}")
 
     # 5) Finalize and run
+    print("Finalizing and running...")
     vis.reset_camera_to_default()
     app.add_window(vis)
     app.run()
@@ -334,9 +342,11 @@ def display_sam2(point_clouds, boxes, scores, window_prefix=""):
 def test_sam(rgb_img, depth_img, predictions, intrinsics, debug):
     sam = SAM2_PC()
     for querry_object, canditates in predictions.items():
-        print("\n\n")
+        if debug:
+            print("\n\n")
         point_clouds, boxes, scores = sam.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=debug)
-        #display_sam2(point_clouds, boxes, scores, window_prefix=f"{querry_object} ")   
+        print("begin display:")
+        display_sam2(point_clouds, boxes, scores, window_prefix=f"{querry_object} ")
     return None
 
 
@@ -348,14 +358,9 @@ if __name__=="__main__":
     if not ret:
         print("Error: Unable to read frame from the camera.")
         exit(1)
-    
+
     print(f"\n\nTESTING OWL")
     predictions = test_OWL(rgb_img, debug=False)
-    
+
     print(f"\n\nTESTING SAM")
-    test_sam(rgb_img, depth_img, predictions, I, debug=False)    
-
-
-
-    
-
+    test_sam(rgb_img, depth_img, predictions, I, debug=False)

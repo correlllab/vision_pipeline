@@ -1,21 +1,20 @@
 {
-    "iou_2d": 0.1, 
-    "min_2d_box_side": 0, 
+    "iou_2d": 0.1,
+    "min_2d_box_side": 0,
     "owlv2_discard_percentile": 0.5,
 
-    "min_3d_points":100, 
+    "min_3d_points":100,
     "min_depth":0,
-    "max_depth": 10,
-    
+
     "voxel_size": 0.05,
     "statistical_outlier_removal": true,
     "statistical_nb_neighbors":20,
     "statistical_std_ratio":0.5,
     "radius_outlier_removal": false,
-    "radius_radius": 0.8, 
+    "radius_radius": 0.8,
     "radius_nb_points": 2,
     "iou_3d": 0.1,
-    
+
     "belief_threshold": 0.01,
     "test_querys":["wrench", "screw driver", "water bottle", "blue cube", "black tape"],
     "false_negative_rate":0.5
