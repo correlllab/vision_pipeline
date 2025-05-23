@@ -21,9 +21,9 @@ def main(args=None):
         print("RGB img shape: ", rgb_img.shape)
         print("Depth img shape: ", depth_img.shape)
         querries = ["drill", "screw driver", "wrench"]
-        predictions_2d = OWL.predict(rgb_img, querries, debug=False)
+        predictions_2d = OWL.predict(rgb_img, querries, debug=True)
         for querry_object, canditates in predictions_2d.items():
             print("\n\n")
-            point_clouds, boxes, scores = SAM.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=False)
+            point_clouds, boxes, scores = SAM.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=True)
 if __name__ == "__main__":
     main()
