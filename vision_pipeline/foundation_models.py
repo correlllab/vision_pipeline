@@ -5,7 +5,7 @@ import warnings
 import matplotlib.pyplot as plt
 import cv2
 import numpy as np
-from capture_cameras import get_cap, RealSenseCamera
+from vision_pipeline.capture_cameras import get_cap, RealSenseCamera
 import open3d as o3d
 import torch.nn.functional as F
 
@@ -13,10 +13,18 @@ from open3d.visualization import gui, rendering
 
 import numpy as np
 from torchvision.ops import clip_boxes_to_image, remove_small_boxes
-from utils import get_points_and_colors, nms
+from vision_pipeline.utils import get_points_and_colors, nms
 import json
 import random
-config = json.load(open("config.json"))
+import os
+_script_dir = os.path.dirname(os.path.realpath(__file__))
+_config_path = os.path.join(_script_dir, 'config.json')
+fig_dir = os.path.join(_script_dir, 'figures')
+os.makedirs(fig_dir, exist_ok=True)
+os.makedirs(os.path.join(fig_dir, "SAM2"), exist_ok=True)
+os.makedirs(os.path.join(fig_dir, "OWLV2"), exist_ok=True)
+config = json.load(open(_config_path, 'r'))
+
 
 class OWLv2:
     def __init__(self):
@@ -150,7 +158,7 @@ def display_owl(img, predicitons, window_prefix = ""):
             cv2.rectangle(display_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
             cv2.putText(display_img, f"{querry_object} {score:.4f}", (x_min, y_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         # Display the image with bounding boxes
-        cv2.imwrite(f"./figures/OWLV2/{window_prefix}{querry_object}.png", display_img)
+        cv2.imwrite(f"{fig_dir}/OWLV2/{window_prefix}{querry_object}.png", display_img)
         cv2.imshow(f"{window_prefix}{querry_object}", display_img)
         cv2.waitKey(1)
     cv2.waitKey(0)
@@ -222,7 +230,7 @@ class SAM2_PC:
                 ax[i, 2].imshow(masked_rgb[i])
                 ax[i, 3].imshow(masked_depth[i])
             fig.tight_layout()
-            fig.savefig(f"./figures/SAM2/masks_{random.randint(0,100)}.png")
+            fig.savefig(f"{fig_dir}/SAM2/masks_{random.randint(0,100)}.png")
             plt.show()
         
         #Get points and colors from masked depth and rgb images
@@ -328,7 +336,7 @@ def test_sam(rgb_img, depth_img, predictions, intrinsics, debug):
     for querry_object, canditates in predictions.items():
         print("\n\n")
         point_clouds, boxes, scores = sam.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=debug)
-        display_sam2(point_clouds, boxes, scores, window_prefix=f"{querry_object} ")   
+        #display_sam2(point_clouds, boxes, scores, window_prefix=f"{querry_object} ")   
     return None
 
 
@@ -344,8 +352,8 @@ if __name__=="__main__":
     print(f"\n\nTESTING OWL")
     predictions = test_OWL(rgb_img, debug=False)
     
-    #print(f"\n\nTESTING SAM")
-    test_sam(rgb_img, depth_img, predictions, I, debug=True)    
+    print(f"\n\nTESTING SAM")
+    test_sam(rgb_img, depth_img, predictions, I, debug=False)    
 
 
 

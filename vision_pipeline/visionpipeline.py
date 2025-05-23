@@ -1,12 +1,14 @@
-from foundation_models import OWLv2, SAM2_PC, display_owl, display_sam2
+from vision_pipeline.foundation_models import OWLv2, SAM2_PC, display_owl, display_sam2
 import open3d as o3d
-from utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image
+from vision_pipeline.utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image
 import torch
 from open3d.visualization import gui, rendering
 import numpy as np
-
 import json
-config = json.load(open("config.json"))
+import os
+_script_dir = os.path.dirname(os.path.realpath(__file__))
+_config_path = os.path.join(_script_dir, 'config.json')
+config = json.load(open(_config_path, 'r'))
 
 
 class VisionPipe:
@@ -14,7 +16,7 @@ class VisionPipe:
         self.owv2 = OWLv2()
         self.sam2 = SAM2_PC()
         self.tracked_objects = {}
-    def update(self, rgb_img, depth_img, querries, I, obs_pose=[0,0,0,0,0,0] , debug = False):
+    def update(self, rgb_img, depth_img, querries, I, obs_pose=[0,0,0,0,0,0], debug = False):
         predictions_2d = self.owv2.predict(rgb_img, querries)
         if debug:
             display_owl(rgb_img, predictions_2d)
@@ -149,6 +151,40 @@ class VisionPipe:
         vis.reset_camera_to_default()
         app.add_window(vis)
         app.run()
+    
+    def display(self):
+        app = gui.Application.instance
+        app.initialize()
+
+        # 2) Create an O3DVisualizer window
+        vis = o3d.visualization.O3DVisualizer("Final finding", 1024, 768)
+        vis.show_settings = True
+
+        # 3) Add a camera‐frame axis
+        camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
+            size=0.2,
+            origin=[0, 0, 0]
+        )
+        vis.add_geometry("CameraFrame", camera_frame)
+
+        # 4) For each query: get its point cloud + belief, add both geometry + label
+        for q in self.tracked_objects.keys():
+            pcd, belief = self.querry(q)
+            # add the raw point cloud
+            vis.add_geometry(f"pcd_{q}", pcd)
+            # compute a label position (centroid of the cloud)
+            pts = np.asarray(pcd.points)
+            if pts.size:
+                center = pts.mean(axis=0)
+            else:
+                center = np.array([0.0, 0.0, 0.0])
+            # place a 3D text label of the belief
+            vis.add_3d_label(center, f"{q}:{belief:.3f}")
+
+        # 5) Finalize camera & run
+        vis.reset_camera_to_default()
+        app.add_window(vis)
+        app.run()
 
 
 def test_VP(cap):
@@ -167,7 +203,7 @@ def test_VP(cap):
         print(f"\n\n")
         # for q in config["test_querys"]:
         #     vp.vis_belief(q)
-
+    vp.display()
 
     app = gui.Application.instance
     app.initialize()
