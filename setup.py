@@ -28,6 +28,8 @@ setup(
             'foundation_models = vision_pipeline.foundation_models:main',
             'subscriber = vision_pipeline.subscriber:main',
             'visionpipeline = vision_pipeline.visionpipeline:main',
+            'FoundationModels_RosWrapper = vision_pipeline.FoundationModels_RosWrapper:main',
+            'vision_pipeline_ros_wrapper = vision_pipeline.VisionPipeline_RosWrapper:main',
         ],
     },
 )

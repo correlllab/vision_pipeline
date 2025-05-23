@@ -17,7 +17,7 @@ import cv2
 class RealSenseSubscriber(Node):
     """
     Subscribes to the RGBD and CameraInfo topics for a given camera namespace under /realsense.
-    Stores the latest RGB-D images for display.
+    Stores the latest RGB-D images and camera info for display or further processing.
 
     camera_key: e.g. 'head' or 'left_hand'.
     """
@@ -28,6 +28,7 @@ class RealSenseSubscriber(Node):
         self.bridge = CvBridge()
         self.latest_rgb = None      # Latest BGR image
         self.latest_depth = None    # Latest depth image (normalized for display)
+        self.latest_info = None     # Latest CameraInfo
         self._lock = threading.Lock()
 
         # QoS for sensor data
@@ -42,6 +43,13 @@ class RealSenseSubscriber(Node):
             RGBD,
             f"/realsense/{camera_key}/rgbd",
             self._rgbd_callback,
+            qos
+        )
+        # Subscribe to camera info for intrinsics
+        self.create_subscription(
+            CameraInfo,
+            f"/realsense/{camera_key}/color/camera_info",
+            self._info_callback,
             qos
         )
 
@@ -59,11 +67,42 @@ class RealSenseSubscriber(Node):
         rgb_img = self.bridge.imgmsg_to_cv2(msg.rgb, 'bgr8')
         depth_img = self.bridge.imgmsg_to_cv2(msg.depth, 'passthrough')
         # Normalize depth for display
-        depth_norm = cv2.normalize(depth_img, None, 0, 255, cv2.NORM_MINMAX)
-        depth_display = cv2.cvtColor(depth_norm.astype(np.uint8), cv2.COLOR_GRAY2BGR)
+        #depth_norm = cv2.normalize(depth_img, None, 0, 255, cv2.NORM_MINMAX)
+        #depth_display = cv2.cvtColor(depth_norm.astype(np.uint8), cv2.COLOR_GRAY2BGR)
         with self._lock:
             self.latest_rgb = rgb_img
-            self.latest_depth = depth_display
+            self.latest_depth = depth_img
+
+    def _info_callback(self, msg: CameraInfo):
+        # Store the latest camera info message
+        with self._lock:
+            self.latest_info = msg
+    
+    def get_intrinsics(self):
+        """
+        Returns the color camera intrinsics from the latest CameraInfo:
+        {fx, fy, cx, cy, width, height, model, coeffs}
+        """
+        if self.latest_info is None:
+            return None
+
+        ci = self.latest_info
+        # K is row-major [k00, k01, k02; k10, k11, k12; k20, k21, k22]
+        fx = ci.k[0]
+        fy = ci.k[4]
+        cx = ci.k[2]
+        cy = ci.k[5]
+
+        return {
+            'fx': fx,
+            'fy': fy,
+            'cx': cx,
+            'cy': cy,
+            'width':  ci.width,
+            'height': ci.height,
+            'model':  ci.distortion_model,
+            'coeffs': list(ci.d)  # usually [k1, k2, t1, t2, k3]
+        }
 
     def display(self):
         """
@@ -82,6 +121,7 @@ class RealSenseSubscriber(Node):
         """
         self._executor.shutdown()
         self.destroy_node()
+
 
 
 def main(args=None):
