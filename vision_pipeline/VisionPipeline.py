@@ -6,7 +6,7 @@ from open3d.visualization import gui, rendering
 import numpy as np
 import json
 import os
-from VisionPipeline.vision_pipeline.CameraInterfaces import RealSenseCamera, RealSenseSubscriber
+from VisionPipeline.vision_pipeline.RealsenseInterface import RealSenseCamera
 import rclpy
 import open3d as o3d
 _script_dir = os.path.dirname(os.path.realpath(__file__))
