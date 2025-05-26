@@ -5,7 +5,7 @@ import warnings
 import matplotlib.pyplot as plt
 import cv2
 import numpy as np
-from VisionPipeline.vision_pipeline.CameraInterfaces import get_cap, RealSenseCamera
+from VisionPipeline.vision_pipeline.RealsenseInterface import get_cap, RealSenseCamera
 import open3d as o3d
 import torch.nn.functional as F
 
@@ -18,7 +18,7 @@ import json
 import random
 import os
 import rclpy
-from vision_pipeline.CameraInterfaces import RealSenseSubscriber
+from VisionPipeline.vision_pipeline.RealsenseInterface import RealSenseSubscriber
 
 
 _script_dir = os.path.dirname(os.path.realpath(__file__))

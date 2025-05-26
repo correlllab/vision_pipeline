@@ -17,16 +17,16 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='max',
-    maintainer_email='maxlconway@gmail.com',
+    maintainer='todo',
+    maintainer_email='todo@gmail.com',
     description='Vision Pipeline ROS2 package',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'FoundatinModels = vision_pipeline.foundation_models:mainRos',
-            'CameraInterfaces = vision_pipeline.subscriber:main',
-            'visionpipeline = vision_pipeline.visionpipeline:mainRos',
+            'camera = vision_pipeline.RosWrappers:TestSubscriber',
+            'foundatinmodels = vision_pipeline.RosWrappers:TestFoundationModels',
+            'visionpipeline = vision_pipeline.RosWrappers:TestVisionPipe',
         ],
     },
 )
