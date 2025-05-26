@@ -24,12 +24,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'capture_cameras = vision_pipeline.capture_cameras:main',
-            'foundation_models = vision_pipeline.foundation_models:main',
-            'subscriber = vision_pipeline.subscriber:main',
-            'visionpipeline = vision_pipeline.visionpipeline:main',
-            'FoundationModels_RosWrapper = vision_pipeline.FoundationModels_RosWrapper:main',
-            'vision_pipeline_ros_wrapper = vision_pipeline.VisionPipeline_RosWrapper:main',
+            'FoundatinModels = vision_pipeline.foundation_models:mainRos',
+            'CameraInterfaces = vision_pipeline.subscriber:main',
+            'visionpipeline = vision_pipeline.visionpipeline:mainRos',
         ],
     },
 )
