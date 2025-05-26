@@ -1,4 +1,4 @@
-from vision_pipeline.foundation_models import OWLv2, SAM2_PC, display_owl, display_sam2
+from VisionPipeline.vision_pipeline.FoundationModels import OWLv2, SAM2_PC, display_owl, display_sam2
 import open3d as o3d
 from vision_pipeline.utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image
 import torch
@@ -6,6 +6,9 @@ from open3d.visualization import gui, rendering
 import numpy as np
 import json
 import os
+from VisionPipeline.vision_pipeline.CameraInterfaces import RealSenseCamera, RealSenseSubscriber
+import rclpy
+import open3d as o3d
 _script_dir = os.path.dirname(os.path.realpath(__file__))
 _config_path = os.path.join(_script_dir, 'config.json')
 config = json.load(open(_config_path, 'r'))
@@ -205,8 +208,10 @@ def test_VP(cap):
     vp.display()
 
 
+
+
+
 if __name__ == "__main__":
-    from capture_cameras import RealSenseCamera
     cap = RealSenseCamera()
     I = cap.get_intrinsics()
     ret, rgb_img, depth_img = cap.read(return_depth=True)

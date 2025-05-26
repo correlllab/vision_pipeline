@@ -5,7 +5,7 @@ import warnings
 import matplotlib.pyplot as plt
 import cv2
 import numpy as np
-from vision_pipeline.capture_cameras import get_cap, RealSenseCamera
+from VisionPipeline.vision_pipeline.CameraInterfaces import get_cap, RealSenseCamera
 import open3d as o3d
 import torch.nn.functional as F
 
@@ -17,6 +17,10 @@ from vision_pipeline.utils import get_points_and_colors, nms
 import json
 import random
 import os
+import rclpy
+from vision_pipeline.CameraInterfaces import RealSenseSubscriber
+
+
 _script_dir = os.path.dirname(os.path.realpath(__file__))
 _config_path = os.path.join(_script_dir, 'config.json')
 fig_dir = os.path.join(_script_dir, 'figures')
@@ -348,7 +352,6 @@ def test_sam(rgb_img, depth_img, predictions, intrinsics, debug):
         print("begin display:")
         display_sam2(point_clouds, boxes, scores, window_prefix=f"{querry_object} ")
     return None
-
 
 
 if __name__=="__main__":

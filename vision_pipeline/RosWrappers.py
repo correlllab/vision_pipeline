@@ -11,7 +11,9 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from realsense2_camera_msgs.msg import RGBD
 from sensor_msgs.msg import CameraInfo
 from cv_bridge import CvBridge
-import numpy as np
+
+from vision_pipeline.VisionPipe import VisionPipe
+from vision_pipeline.foundation_models import OWLv2, SAM2_PC
 import cv2
 
 class RealSenseSubscriber(Node):
@@ -123,8 +125,39 @@ class RealSenseSubscriber(Node):
         self.destroy_node()
 
 
+class ROS_VisionPipe(VisionPipe):
+    def __init__(self):
+        super().__init__()
+        self.sub = RealSenseSubscriber("head")
+        self.track_strings = []
 
-def main(args=None):
+    def update(self, debug=False):
+        rgb_img = self.sub.latest_rgb
+        depth_img = self.sub.latest_depth
+        intrinsics = self.sub.get_intrinsics()
+        pose = [0,0,0,0,0,0]
+        if rgb_img is None or depth_img is None or intrinsics is None:
+            print("No image received yet.")
+            return False
+        if len(self.track_strings) == 0:
+            print("No track strings provided.")
+            return False
+
+        return super().update(rgb_img, depth_img, self.track_strings, intrinsics, pose, debug=debug)
+
+    def add_track_string(self, new_track_string):
+        if isinstance(new_track_string, str) and new_track_string not in self.track_strings:
+            self.track_strings.append(new_track_string)
+        elif isinstance(new_track_string, list):
+            [self.track_strings.append(x) for x in new_track_string if x not in self.track_strings]
+        else:
+            raise ValueError("track_string must be a string or a list of strings")
+
+
+
+
+
+def TestSubscriber(args=None):
     rclpy.init(args=args)
     cams = sys.argv[1:] if len(sys.argv) > 1 else ['head', 'left_hand']
 
@@ -155,5 +188,48 @@ def main(args=None):
         cv2.destroyAllWindows()
         rclpy.shutdown()
 
-if __name__ == '__main__':
-    main()
+
+def TestFoundationModels(args=None):
+    rclpy.init(args=args)
+    sub = RealSenseSubscriber("head")
+    OWL = OWLv2()
+    SAM = SAM2_PC()
+    while True:
+        rgb_img = sub.latest_rgb
+        depth_img = sub.latest_depth
+        print("RGB img shape: ", rgb_img.shape)
+        print("Depth img shape: ", depth_img.shape)
+        intrinsics = sub.get_intrinsics()
+        obs_pose = [0, 0, 0, 0, 0, 0]
+        if rgb_img is None or depth_img is None or intrinsics is None:
+            print("Waiting for images...")
+            continue
+        print("RGB img shape: ", rgb_img.shape)
+        print("Depth img shape: ", depth_img.shape)
+        querries = ["drill", "screw driver", "wrench"]
+        predictions_2d = OWL.predict(rgb_img, querries, debug=True)
+        for querry_object, canditates in predictions_2d.items():
+            print("\n\n")
+            point_clouds, boxes, scores = SAM.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=True)
+
+
+def TestVisionPipe(args=None):
+    rclpy.init(args=args)
+    VP = ROS_VisionPipe()
+    VP.add_track_string("drill")
+    VP.add_track_string(["wrench", "screwdriver"])
+    success_counter = 0
+    while success_counter < 5:
+        success = VP.update()
+        success_counter += 1 if success != False else 0
+
+    print("Success counter: ", success_counter)
+
+    for object, predictions in VP.tracked_objects.items():
+        print(f"{object=}")
+        print(f"   {len(predictions['boxes'])=}, {len(predictions['pcds'])=}, {predictions['scores'].shape=}")
+        for i, pcd in enumerate(predictions["pcds"]):
+            print(f"   {i=}, {predictions['scores'][i]=}")
+    print("")
+
+    VP.display()

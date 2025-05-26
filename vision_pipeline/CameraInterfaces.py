@@ -1,7 +1,7 @@
+#!/usr/bin/env python3
+import numpy as np
 import cv2
 import pyrealsense2 as rs
-import numpy as np
-
 
 class RealSenseCamera:
     """
@@ -95,11 +95,8 @@ class RealSenseCamera:
         """
         self.pipeline.stop()
 
-
-
-
 def get_cap(index):
-    """Open and configure a V4L2 capture at 3200×1200@60 fps MJPG."""
+    """Open and configure a V4L2 capture at 3200×1200@60 fps MJPG. Used with our stereo camera"""
     cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
     # Force MJPG at 3200×1200 @ 60 fps
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
@@ -119,6 +116,7 @@ def get_cap(index):
     return cap
 
 def display_cap(index):
+    """Displays the video stream from a camera at the given index."""
     cap = get_cap(index)
     if cap is None:
         return
@@ -136,11 +134,8 @@ def display_cap(index):
     cap.release()
     cv2.destroyAllWindows()
 
-# Example usage
+
 if __name__ == "__main__":
-    #display_cap(0)
-    # for i in range(10):
-    #     display_cap(i)
     rs_camera = RealSenseCamera()
     while True:
         ret, color, depth = rs_camera.read(return_depth=True)
