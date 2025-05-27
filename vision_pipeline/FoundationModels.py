@@ -63,7 +63,7 @@ class OWLv2:
         - querries: list of strings whos bounding boxes we want
         - debug: if True, prints debug information
         Returns:
-        - out_dict: dictionary containing a list of bounding boxes and a list of scores for each querry
+        - out_dict: dictionary containing a list of bounding boxes and a list of scores for each query
         """
         #Preprocess inputs
         inputs = self.processor(text=querries, images=img, return_tensors="pt")
@@ -104,7 +104,7 @@ class OWLv2:
 
         #get integer to text label mapping
         out_dict = {}
-        #for each querry, get the boxes and scores and perform NMS
+        #for each query, get the boxes and scores and perform NMS
         for i, label in enumerate(querries):
             text_label = label_lookup[i]
 
@@ -162,17 +162,17 @@ class OWLv2:
     def __repr__(self):
         return self.__str__()
 def display_owl(img, predicitons, window_prefix = ""):
-    for querry_object, prediction in predicitons.items():
+    for query_object, prediction in predicitons.items():
         display_img = img.copy()
         for bbox, score in zip(prediction["boxes"], prediction["scores"]):
             #bbox = prediction["box"]
             #score = prediction["score"]
             x_min, y_min, x_max, y_max = map(int, bbox)
             cv2.rectangle(display_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-            cv2.putText(display_img, f"{querry_object} {score:.4f}", (x_min, y_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            cv2.putText(display_img, f"{query_object} {score:.4f}", (x_min, y_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         # Display the image with bounding boxes
-        cv2.imwrite(f"{fig_dir}/OWLV2/{window_prefix}{querry_object}.png", display_img)
-        cv2.imshow(f"{window_prefix}{querry_object}", display_img)
+        cv2.imwrite(f"{fig_dir}/OWLV2/{window_prefix}{query_object}.png", display_img)
+        cv2.imshow(f"{window_prefix}{query_object}", display_img)
         cv2.waitKey(1)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
@@ -370,7 +370,7 @@ def display_sam2(point_clouds, boxes, scores, window_prefix=""):
 
 def test_sam(rgb_img, depth_img, predictions, intrinsics, debug):
     sam = SAM2_PC()
-    for querry_object, canditates in predictions.items():
+    for query_object, canditates in predictions.items():
         if debug:
             print("\n\n")
         point_clouds, boxes, scores, rgb_masks, depth_masks = sam.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=debug)
@@ -379,12 +379,12 @@ def test_sam(rgb_img, depth_img, predictions, intrinsics, debug):
         for i in range(min(n, len(point_clouds))):
             axes[i, 0].imshow(rgb_masks[i])
             axes[i, 1].imshow(depth_masks[i], cmap='gray')
-            axes[i, 0].set_title(f"{querry_object} {i} Score:{scores[i]:.2f}")
+            axes[i, 0].set_title(f"{query_object} {i} Score:{scores[i]:.2f}")
         fig.tight_layout()
-        fig.suptitle(f"{querry_object} RGB and Depth Masks")
+        fig.suptitle(f"{query_object} RGB and Depth Masks")
         plt.show(block = False)
         #print("begin display:")
-        #display_sam2(point_clouds, boxes, scores, window_prefix=f"{querry_object} ")
+        #display_sam2(point_clouds, boxes, scores, window_prefix=f"{query_object} ")
     plt.show(block = True)
     return None
 

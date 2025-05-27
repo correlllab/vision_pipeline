@@ -15,9 +15,9 @@
     "radius_nb_points": 2,
     "iou_3d_reduction": 0.1,
 
-    "iou_3d_matching": 0.8,
+    "iou_3d_matching": 0.9,
     "belief_threshold": 0.25,
     "test_querys":["drill", "wrench", "screw driver"],
     "false_negative_rate":0.10,
-    "sigmoid_gain": 1
+    "sigmoid_gain": 0.5
 }

@@ -180,25 +180,25 @@ class VisionPipe:
             prediction["rgb_masks"] = [prediction["rgb_masks"][i] for i in range(len(mask)) if mask[i]]
             prediction["depth_masks"] = [prediction["depth_masks"][i] for i in range(len(mask)) if mask[i]]
             prediction["scores"] = prediction["scores"][mask]
-    def querry(self, querry):
+    def query(self, query):
         """
         Returns the top candidate point cloud and its belief score for a given object.
         """
-        if querry in self.tracked_objects:
-            candiates = self.tracked_objects[querry]
+        if query in self.tracked_objects:
+            candiates = self.tracked_objects[query]
             #print(f"{candiates=}")
             argmax1, maxval1 = max(enumerate(candiates["scores"]), key=lambda pair: pair[1])
             top_candiate = candiates["pcds"][argmax1]
             return top_candiate, maxval1
-        raise ValueError(f"Object {querry} not found in tracked objects.")
+        raise ValueError(f"Object {query} not found in tracked objects.")
     
-    def vis_belief2D(self, querry, blocking=True, n_rows = 10, n_cols = 5, prefix=""):
+    def vis_belief2D(self, query, blocking=True, n_rows = 10, n_cols = 5, prefix=""):
         """
         Visualizes the belief scores of a given object in a bar plot and its RGB masks in a grid.
         """
-        if querry not in self.tracked_objects:
-            raise ValueError(f"Object {querry} not found in tracked objects.")
-        bundles = [(self.tracked_objects[querry]["scores"][i], self.tracked_objects[querry]["rgb_masks"][i]) for i in range(len(self.tracked_objects[querry]["scores"]))]
+        if query not in self.tracked_objects:
+            raise ValueError(f"Object {query} not found in tracked objects.")
+        bundles = [(self.tracked_objects[query]["scores"][i], self.tracked_objects[query]["rgb_masks"][i]) for i in range(len(self.tracked_objects[query]["scores"]))]
         bundles = sorted(bundles, key=lambda x: x[0], reverse=True)
         
         scores = [bundle[0] for bundle in bundles]
@@ -208,18 +208,18 @@ class VisionPipe:
         plt.bar(indices, scores.cpu().numpy() if hasattr(scores, "cpu") else scores, color='skyblue')
         plt.xlabel("Belief Rank")
         plt.ylabel("Belief Score")
-        plt.title(f"{prefix}Belief Scores for '{querry}'")
+        plt.title(f"{prefix}Belief Scores for '{query}'")
         
         # Plot n_cols RGB masks in a grid of the top n_rows candidates
         n_rows = min(n_rows, len(bundles))
         max_imgs = max([len(rgb_masks) for _, rgb_masks in bundles[:n_rows]])
         n_cols = min(n_cols, max_imgs)
         n_cols = max(n_cols, 2)  # Ensure at least one column
-        #print(f"Visualizing {querry} with {n_rows} rows and {n_cols} columns of images.")
+        #print(f"Visualizing {query} with {n_rows} rows and {n_cols} columns of images.")
         fig, axes = plt.subplots(n_rows, n_cols, figsize=(19,12))
-        fig.suptitle(f"{prefix}Belief Scores for '{querry}'", fontsize=16)
+        fig.suptitle(f"{prefix}Belief Scores for '{query}'", fontsize=16)
         for i, (score, rgb_masks)in enumerate(bundles[:n_rows]):
-            axes[i, 0].set_title(f"{querry} {i} Score: {score:.2f}")
+            axes[i, 0].set_title(f"{query} {i} Score: {score:.2f}")
             for j in range(min(len(rgb_masks), n_cols)):
                 axes[i, j].imshow(rgb_masks[j])
                 axes[i, j].axis('off')
@@ -227,23 +227,23 @@ class VisionPipe:
         plt.show(block=blocking)
         #plt.pause(0.1)
 
-    def vis_belief3D(self, querry):
+    def vis_belief3D(self, query):
         """
         Visualizes the belief scores of a given object in 3D using Open3D.
         Displays the point clouds and 3D bounding boxes in an Open3D visualizer.
         """
-        if querry not in self.tracked_objects:
-            raise ValueError(f"Object {querry} not found in tracked objects.")
-        pcds = self.tracked_objects[querry]["pcds"]
-        scores = self.tracked_objects[querry]["scores"]
-        bboxes = self.tracked_objects[querry]["boxes"]
+        if query not in self.tracked_objects:
+            raise ValueError(f"Object {query} not found in tracked objects.")
+        pcds = self.tracked_objects[query]["pcds"]
+        scores = self.tracked_objects[query]["scores"]
+        bboxes = self.tracked_objects[query]["boxes"]
 
         # 2) Initialize the GUI App (only once per process)
         app = gui.Application.instance
         app.initialize()
 
         # 3) Create an O3DVisualizer window
-        vis = o3d.visualization.O3DVisualizer(f"Belief Vis: {querry}", 1024, 768)
+        vis = o3d.visualization.O3DVisualizer(f"Belief Vis: {query}", 1024, 768)
         vis.show_settings = True
 
         # 4) Add each point cloud and box to the scene
@@ -284,7 +284,7 @@ class VisionPipe:
 
         # 4) For each query: get its point cloud + belief, add both geometry + label
         for q in self.tracked_objects.keys():
-            pcd, belief = self.querry(q)
+            pcd, belief = self.query(q)
             # add the raw point cloud
             vis.add_geometry(f"pcd_{q}", pcd)
             # compute a label position (centroid of the cloud)
@@ -319,7 +319,7 @@ def test_VP(cap):
     
         # for q in config["test_querys"]:
         #     vp.vis_belief3D(q)
-    vp.vis_belief2D(querry=config["test_querys"][0], blocking=True, n_rows=5, n_cols=3)
+    vp.vis_belief2D(query=config["test_querys"][0], blocking=True, n_rows=5, n_cols=3)
     #vp.display()
 
 
