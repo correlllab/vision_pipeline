@@ -215,7 +215,7 @@ def TestFoundationModels(args=None):
         print("Depth img shape: ", depth_img.shape)
         querries = ["drill", "screw driver", "wrench"]
         predictions_2d = OWL.predict(rgb_img, querries, debug=False)
-        for querry_object, canditates in predictions_2d.items():
+        for query_object, canditates in predictions_2d.items():
             #print("\n\n")
             point_clouds, boxes, scores,  rgb_masks, depth_masks = SAM.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=False)
             n = 5
@@ -223,9 +223,9 @@ def TestFoundationModels(args=None):
             for i in range(min(n, len(point_clouds))):
                 axes[i, 0].imshow(rgb_masks[i])
                 axes[i, 1].imshow(depth_masks[i], cmap='gray')
-                axes[i, 0].set_title(f"{querry_object} {i} Score:{scores[i]:.2f}")
+                axes[i, 0].set_title(f"{query_object} {i} Score:{scores[i]:.2f}")
             fig.tight_layout()
-            fig.suptitle(f"{querry_object} RGB and Depth Masks")
+            fig.suptitle(f"{query_object} RGB and Depth Masks")
             plt.show(block = False)
         plt.show(block = True)
     return None
@@ -242,7 +242,7 @@ def TestVisionPipe(args=None):
         success_counter += 1 if success != False else 0
         if success:
             print(f"Success {success_counter} with {len(VP.tracked_objects)} tracked objects")
-            VP.vis_belief2D(querry="drill", blocking=False, prefix = f"T={success_counter} ")
+            VP.vis_belief2D(query="drill", blocking=False, prefix = f"T={success_counter} ")
 
     print("Success counter: ", success_counter)
 
@@ -252,6 +252,6 @@ def TestVisionPipe(args=None):
         for i, pcd in enumerate(predictions["pcds"]):
             print(f"   {i=}, {predictions['scores'][i]=}")
         print(f"{object=}")
-        VP.vis_belief2D(querry=object, blocking=False, prefix=f"Final {object} predictions")
+        VP.vis_belief2D(query=object, blocking=False, prefix=f"Final {object} predictions")
     print("call show")
     plt.show()
