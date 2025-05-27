@@ -25,7 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'camera = vision_pipeline.RosWrappers:TestSubscriber',
-            'foundatinmodels = vision_pipeline.RosWrappers:TestFoundationModels',
+            'foundationmodels = vision_pipeline.RosWrappers:TestFoundationModels',
             'visionpipeline = vision_pipeline.RosWrappers:TestVisionPipe',
         ],
     },
