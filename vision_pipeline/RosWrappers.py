@@ -12,9 +12,18 @@ from realsense2_camera_msgs.msg import RGBD
 from sensor_msgs.msg import CameraInfo
 from cv_bridge import CvBridge
 
-from vision_pipeline.VisionPipe import VisionPipe
-from vision_pipeline.foundation_models import OWLv2, SAM2_PC
+import numpy as np
 import cv2
+import matplotlib.pyplot as plt
+
+import os
+import sys
+dir_path = os.path.dirname(os.path.abspath(__file__))
+if dir_path not in sys.path:
+    sys.path.insert(0, dir_path)
+
+from VisionPipeline import VisionPipe
+from FoundationModels import OWLv2, SAM2_PC
 
 class RealSenseSubscriber(Node):
     """
@@ -106,16 +115,7 @@ class RealSenseSubscriber(Node):
             'coeffs': list(ci.d)  # usually [k1, k2, t1, t2, k3]
         }
 
-    def display(self):
-        """
-        Display the latest RGB and depth images in OpenCV windows.
-        """
-        with self._lock:
-            rgb = self.latest_rgb.copy() if self.latest_rgb is not None else np.zeros((480, 640, 3), np.uint8)
-            depth = self.latest_depth.copy() if self.latest_depth is not None else np.zeros((480, 640, 3), np.uint8)
-
-        cv2.imshow(f"{self.camera_key}/RGB", rgb)
-        cv2.imshow(f"{self.camera_key}/Depth", depth)
+    
 
     def shutdown(self):
         """
@@ -125,7 +125,7 @@ class RealSenseSubscriber(Node):
         self.destroy_node()
 
 
-class ROS_VisionPipe(VisionPipe):
+class ROS_VisionPipe(VisionPipe, Node):
     def __init__(self):
         super().__init__()
         self.sub = RealSenseSubscriber("head")
@@ -173,12 +173,17 @@ def TestSubscriber(args=None):
         while rclpy.ok():
             # Display images for each subscriber
             for sub in subs:
-                sub.display()
+                rgb = sub.latest_rgb.copy() if sub.latest_rgb is not None else np.zeros((480, 640, 3), np.uint8)
+                depth = sub.latest_depth.copy() if sub.latest_depth is not None else np.zeros((480, 640, 3), np.uint8)
+                depth = depth.astype(np.float32)
+                depth /= max(depth.max(), 1e-6)  # Normalize depth to [0, 1] for display
+                depth = (depth * 255).astype(np.uint8)  # Scale to [0, 255] for display
+                cv2.imshow(f"{sub.camera_key}/RGB", rgb)
+                cv2.imshow(f"{sub.camera_key}/Depth", depth)
 
             # WaitKey for refresh and exit
-            if cv2.waitKey(30) & 0xFF == ord('q'):
+            if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-            time.sleep(0.03)
 
     except KeyboardInterrupt:
         pass
@@ -194,34 +199,50 @@ def TestFoundationModels(args=None):
     sub = RealSenseSubscriber("head")
     OWL = OWLv2()
     SAM = SAM2_PC()
-    while True:
+    while rclpy.ok():
         rgb_img = sub.latest_rgb
         depth_img = sub.latest_depth
-        print("RGB img shape: ", rgb_img.shape)
-        print("Depth img shape: ", depth_img.shape)
         intrinsics = sub.get_intrinsics()
-        obs_pose = [0, 0, 0, 0, 0, 0]
+
         if rgb_img is None or depth_img is None or intrinsics is None:
             print("Waiting for images...")
             continue
         print("RGB img shape: ", rgb_img.shape)
         print("Depth img shape: ", depth_img.shape)
+        obs_pose = [0, 0, 0, 0, 0, 0]
+        
+        print("RGB img shape: ", rgb_img.shape)
+        print("Depth img shape: ", depth_img.shape)
         querries = ["drill", "screw driver", "wrench"]
-        predictions_2d = OWL.predict(rgb_img, querries, debug=True)
+        predictions_2d = OWL.predict(rgb_img, querries, debug=False)
         for querry_object, canditates in predictions_2d.items():
-            print("\n\n")
-            point_clouds, boxes, scores = SAM.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=True)
+            #print("\n\n")
+            point_clouds, boxes, scores,  rgb_masks, depth_masks = SAM.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=False)
+            n = 5
+            fig, axes = plt.subplots(5, 2, figsize=(20, 10))
+            for i in range(min(n, len(point_clouds))):
+                axes[i, 0].imshow(rgb_masks[i])
+                axes[i, 1].imshow(depth_masks[i], cmap='gray')
+                axes[i, 0].set_title(f"{querry_object} {i} Score:{scores[i]:.2f}")
+            fig.tight_layout()
+            fig.suptitle(f"{querry_object} RGB and Depth Masks")
+            plt.show(block = False)
+        plt.show(block = True)
+    return None
 
 
 def TestVisionPipe(args=None):
     rclpy.init(args=args)
     VP = ROS_VisionPipe()
     VP.add_track_string("drill")
-    VP.add_track_string(["wrench", "screwdriver"])
+    #VP.add_track_string(["wrench", "screwdriver"])
     success_counter = 0
     while success_counter < 5:
         success = VP.update()
         success_counter += 1 if success != False else 0
+        if success:
+            print(f"Success {success_counter} with {len(VP.tracked_objects)} tracked objects")
+            VP.vis_belief2D(querry="drill", blocking=False, prefix = f"T={success_counter} ")
 
     print("Success counter: ", success_counter)
 
@@ -230,6 +251,7 @@ def TestVisionPipe(args=None):
         print(f"   {len(predictions['boxes'])=}, {len(predictions['pcds'])=}, {predictions['scores'].shape=}")
         for i, pcd in enumerate(predictions["pcds"]):
             print(f"   {i=}, {predictions['scores'][i]=}")
-    print("")
-
-    VP.display()
+        print(f"{object=}")
+        VP.vis_belief2D(querry=object, blocking=False, prefix=f"Final {object} predictions")
+    print("call show")
+    plt.show()

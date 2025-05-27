@@ -5,7 +5,6 @@ import warnings
 import matplotlib.pyplot as plt
 import cv2
 import numpy as np
-from VisionPipeline.vision_pipeline.RealsenseInterface import get_cap, RealSenseCamera
 import open3d as o3d
 import torch.nn.functional as F
 
@@ -13,12 +12,17 @@ from open3d.visualization import gui, rendering
 
 import numpy as np
 from torchvision.ops import clip_boxes_to_image, remove_small_boxes
-from vision_pipeline.utils import get_points_and_colors, nms
 import json
 import random
 import os
-import rclpy
-from VisionPipeline.vision_pipeline.RealsenseInterface import RealSenseSubscriber
+
+import sys
+dir_path = os.path.dirname(os.path.abspath(__file__))
+if dir_path not in sys.path:
+    sys.path.insert(0, dir_path)
+from RealsenseInterface import get_cap, RealSenseCamera
+from utils import get_points_and_colors, nms
+
 
 
 _script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -110,7 +114,7 @@ class OWLv2:
             instance_scores = small_removed_scores[mask]
 
             #Do NMS for the current label
-            pruned_boxes, pruned_scores, _ = nms(instance_boxes.cpu(), instance_scores.cpu(), iou_threshold=config["iou_2d"], three_d=False)
+            pruned_boxes, pruned_scores, _ = nms(instance_boxes.cpu(), instance_scores.cpu(), iou_threshold=config["iou_2d_reduction"], three_d=False)
             pruned_boxes  = torch.stack(pruned_boxes)
             pruned_scores = torch.stack(pruned_scores)
 
@@ -121,11 +125,16 @@ class OWLv2:
             #Get rid of low scores
             threshold = torch.quantile(pruned_scores, config["owlv2_discard_percentile"])
             keep = pruned_scores > threshold
+            filtered_boxes  = pruned_boxes[keep]
             filtered_scores = pruned_scores[keep]
 
             # Normalize scores
-            filtered_scores = filtered_scores / filtered_scores.sum()
-            filtered_boxes  = pruned_boxes[keep]
+            filtered_scores = F.sigmoid(filtered_scores*config["sigmoid_gain"])
+            #mu    = filtered_scores.mean()
+            #sigma = filtered_scores.std(unbiased=False)
+            #z = (filtered_scores - mu) / sigma
+            #filtered_scores = F.softmax(z, dim=0)
+            # filtered_scores = filtered_scores / filtered_scores.sum()
 
             # Update output dictionary
             out_dict[text_label] = {"scores": filtered_scores, "boxes": filtered_boxes}
@@ -215,6 +224,8 @@ class SAM2_PC:
         #Apply mask to the depth and rgb images
         masked_depth = depth_img[None, ...] * sam_mask
         masked_rgb = rgb_img[None, ...] * sam_mask[..., None]
+        #print(f"\n\n{masked_depth.shape=}, {masked_rgb.shape=}")
+        #print(f"{type(masked_depth)=}, {type(masked_rgb)=}\n\n")
         if debug:
             n_fig = 2
             print(f"{masked_depth.shape=}, {masked_rgb.shape=}")
@@ -250,9 +261,13 @@ class SAM2_PC:
             print(f"{points.shape=}, {colors.shape=}")
 
         B, N, _ = points.shape
+
         full_pcds = []
         full_bounding_boxes_3d = []
         full_scores = []
+        full_masked_rgb = []
+        full_masked_depth = []
+
         pts_cpu   = points.detach().cpu()
         cols_cpu  = colors.detach().cpu()
         #for each candiate object get the point cloud unless there are too few points
@@ -287,20 +302,30 @@ class SAM2_PC:
             full_pcds.append(pcd)
             full_scores.append(scores[i])
             full_bounding_boxes_3d.append(bbox)
+            full_masked_rgb.append(masked_rgb[i])
+            full_masked_depth.append(masked_depth[i])
+
 
         # Perform NMS on the 3D bounding boxes
-        reduced_bounding_boxes_3d, reduced_scores, reduced_extras = nms(full_bounding_boxes_3d, full_scores, extra_data_lists=[full_pcds], iou_threshold=config["iou_3d"], three_d=True)
+        #print(f"Found {len(full_pcds)=} {len(full_bounding_boxes_3d)=}, {len(full_scores)=}, {len(full_masked_rgb)=}, {len(full_masked_depth)=}")
+        reduced_bounding_boxes_3d, reduced_scores, reduced_extras = nms(full_bounding_boxes_3d, full_scores, extra_data_lists=[full_pcds, full_masked_rgb, full_masked_depth], iou_threshold=config["iou_3d_reduction"], three_d=True)
         reduced_pcds = reduced_extras[0]
+        reduced_rgb_masks = reduced_extras[1]
+        reduced_depth_masks = reduced_extras[2]
 
         # Normalize the scores
         reduced_scores = torch.tensor(reduced_scores)
-        reduced_scores = reduced_scores / reduced_scores.sum()
+        #mu    = reduced_scores.mean()
+        #sigma = reduced_scores.std(unbiased=False)
+        #z = (reduced_scores - mu) / sigma
+        #reduced_scores = F.softmax(z, dim=0)
+        #reduced_scores = reduced_scores / reduced_scores.sum()
+        reduced_scores = F.sigmoid(reduced_scores*config["sigmoid_gain"])
         if debug:
-            print(f"   {len(full_pcds)=}, {len(full_scores)=}, {len(full_bounding_boxes_3d)=}")
-            print(f"   {len(reduced_pcds)=}, {len(reduced_bounding_boxes_3d)=}, {reduced_scores.shape=}")
+            print(f"   {len(full_pcds)=}, {len(full_scores)=}, {len(full_bounding_boxes_3d)=}, {len(full_masked_rgb)=}, {len(full_masked_depth)=}")
+            print(f"   {len(reduced_pcds)=}, {len(reduced_bounding_boxes_3d)=}, {reduced_scores.shape=}, {len(reduced_rgb_masks)=}, {len(reduced_depth_masks)=}")
 
-
-        return reduced_pcds, reduced_bounding_boxes_3d, reduced_scores
+        return reduced_pcds, reduced_bounding_boxes_3d, reduced_scores, reduced_rgb_masks, reduced_depth_masks
     def __str__(self):
         return f"SAM2: {self.sam_predictor.model.device}"
     def __repr__(self):
@@ -310,19 +335,19 @@ class SAM2_PC:
 
 def display_sam2(point_clouds, boxes, scores, window_prefix=""):
     # 1) Initialize the GUI app (only once per program)
-    print("Initializing GUI app...")
+    #print("Initializing GUI app...")
     app = gui.Application.instance
     app.initialize()
 
     # 2) Create the O3DVisualizer window
-    print("Creating O3DVisualizer window...")
+    #print("Creating O3DVisualizer window...")
     vis = o3d.visualization.O3DVisualizer(
         window_prefix + "PointClouds", 1024, 768
     )
     vis.show_settings = True
 
     # 3) Add geometries by name
-    print("Adding geometries...")
+    #print("Adding geometries...")
     vis.add_geometry("CameraFrame",
                      o3d.geometry.TriangleMesh.create_coordinate_frame(
                          size=0.2, origin=[0,0,0]))
@@ -332,13 +357,13 @@ def display_sam2(point_clouds, boxes, scores, window_prefix=""):
         vis.add_geometry(f"Box{idx}", box)
 
     # 4) Annotate each box’s center with its score
-    print("Annotating boxes...")
+    #print("Annotating boxes...")
     for box, score in zip(boxes, scores):
         center = box.get_center()  # AABB or mesh both support this
         vis.add_3d_label(center, f"{float(score):.2f}")
 
     # 5) Finalize and run
-    print("Finalizing and running...")
+    #print("Finalizing and running...")
     vis.reset_camera_to_default()
     app.add_window(vis)
     app.run()
@@ -348,9 +373,19 @@ def test_sam(rgb_img, depth_img, predictions, intrinsics, debug):
     for querry_object, canditates in predictions.items():
         if debug:
             print("\n\n")
-        point_clouds, boxes, scores = sam.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=debug)
-        print("begin display:")
-        display_sam2(point_clouds, boxes, scores, window_prefix=f"{querry_object} ")
+        point_clouds, boxes, scores, rgb_masks, depth_masks = sam.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=debug)
+        n = 5
+        fig, axes = plt.subplots(5, 2, figsize=(20, 10))
+        for i in range(min(n, len(point_clouds))):
+            axes[i, 0].imshow(rgb_masks[i])
+            axes[i, 1].imshow(depth_masks[i], cmap='gray')
+            axes[i, 0].set_title(f"{querry_object} {i} Score:{scores[i]:.2f}")
+        fig.tight_layout()
+        fig.suptitle(f"{querry_object} RGB and Depth Masks")
+        plt.show(block = False)
+        #print("begin display:")
+        #display_sam2(point_clouds, boxes, scores, window_prefix=f"{querry_object} ")
+    plt.show(block = True)
     return None
 
 
