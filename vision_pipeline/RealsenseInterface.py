@@ -41,6 +41,7 @@ class RealSenseCameraPublisher:
         if InitChannelFactory:
             ChannelFactoryInitialize()
         # Create and configure pipeline
+        #print("here1")
         self.pipeline = rs.pipeline()
         cfg = rs.config()
 
@@ -55,7 +56,8 @@ class RealSenseCameraPublisher:
             self.profile = self.pipeline.start(cfg)
         else:
             # No args or incomplete args → use camera’s built-in defaults
-            self.profile = self.pipeline.start()
+            #print("here2")
+            self.profile = self.pipeline.start(cfg)
 
         # Depth scale (override if provided)
         sensor = self.profile.get_device().first_depth_sensor()
@@ -100,7 +102,7 @@ class RealSenseCameraPublisher:
             intrinsic_matrix=self.get_intrinsics(),
             extrinsic_matrix=self.get_extrinsics()
         )
-        print(f"Publishing message: {type(msg)}")
+        #print(f"Publishing message: {type(msg)}")
         self.publisher.Write(msg)  # 0.5 seconds timeout
     def get_intrinsics(self):
         """
