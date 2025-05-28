@@ -5,8 +5,8 @@ from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 if __name__ == "__main__":
     # Initialize the RealSense publisher
     ChannelFactoryInitialize()
-    Head_publisher = RealSenseCameraPublisher(channel_name='realsense/head', serial_number = "" InitChannelFactory=False)
-    Larm_publisher = RealSenseCameraPublisher(channel_name='realsense/head', serial_number = "" InitChannelFactory=False)
+    Head_publisher = RealSenseCameraPublisher(channel_name='realsense/Head', serial_number = "250122072330", InitChannelFactory=False)
+    Larm_publisher = RealSenseCameraPublisher(channel_name='realsense/LArm', serial_number = "838212072778", InitChannelFactory=False)
 
     while True:
         Head_publisher.publish()
