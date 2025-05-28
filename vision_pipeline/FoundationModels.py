@@ -291,7 +291,7 @@ class SAM2_PC:
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(pts_valid.numpy())
             pcd.colors = o3d.utility.Vector3dVector(cls_valid.numpy()/255)
-            pcd.voxel_down_sample(voxel_size=config["voxel_size"])
+            pcd = pcd.voxel_down_sample(voxel_size=config["voxel_size"])
             # Apply statistical outlier removal to denoise the point cloud
             if config["statistical_outlier_removal"]:
                 pcd, ind = pcd.remove_statistical_outlier(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
