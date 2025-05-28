@@ -1,6 +1,6 @@
 # run_publishers.py
 from multiprocessing import Process
-from Publishers import LArmPublisher, HeadPublisher
+import LArmPublisher, HeadPublisher
 
 if __name__ == "__main__":
     p1 = Process(target=LArmPublisher.run)
