@@ -1,7 +1,11 @@
 import time
-from RealsenseInterface import RealSenseCameraPublisher
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+import sys
+import os
 
+# Add parent directory to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from RealsenseInterface import RealSenseCameraPublisher
 if __name__ == "__main__":
     # Initialize the RealSense publisher
     ChannelFactoryInitialize()
