@@ -151,10 +151,13 @@ class RealSenseCameraSubscriber():
             ChannelFactoryInitialize()
         self.channel_name = channel_name
         self.subscriber = ChannelSubscriber(channel_name, CameraSensorData)
-        self.subscriber.Init()
+        self.subscriber.Init(queueLen=10)
 
     def read(self, display=False):
-        msg = self.subscriber.Read()
+        msg = self.subscriber.Read(0.5)  # 0.5 seconds timeout
+        if msg is None:
+            print(f"No message received on channel {self.channel_name}.")
+            return None, None, None, None
         rgb_image = np.array(msg.rgb_image.data, dtype=np.uint8).reshape((msg.rgb_image.height, msg.rgb_image.width, 3))
         depth_image = np.array(msg.depth_image.data, dtype=np.float32).reshape((msg.depth_image.height, msg.depth_image.width))
         Intrinsics = np.array(msg.intrinsic_matrix, dtype=np.float32).reshape((3, 3))
@@ -169,7 +172,7 @@ class RealSenseCameraSubscriber():
         self.subscriber.Close()
 
 if __name__ == "__main__":
-    ChannelFactoryInitialize()
+    ChannelFactoryInitialize(id = 0, networkInterface="enx00e04c681314")
     pub = RealSenseCameraPublisher("realsense/camera", width=640, height=480, fps=30, serial_number=None, InitChannelFactory=False)
     sub = RealSenseCameraSubscriber("realsense/camera", InitChannelFactory=False)
     while True:
