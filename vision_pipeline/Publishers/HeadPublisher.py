@@ -12,6 +12,7 @@ if __name__ == "__main__":
     ChannelFactoryInitialize()
     Head_publisher = RealSenseCameraPublisher(channel_name='realsense/Head', serial_number = "250122072330", InitChannelFactory=False)
     start_time = time.time()
+
     while True:
         Head_publisher.publish()
         time.sleep(1/60)  # Publish at 60 Hz
