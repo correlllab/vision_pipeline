@@ -4,7 +4,6 @@ from open3d.visualization import gui, rendering
 import numpy as np
 import json
 import os
-import open3d as o3d
 import matplotlib.pyplot as plt
 
 
@@ -66,7 +65,7 @@ class VisionPipe:
             pcds = [pcd.transform(transformation_matrix) for pcd in pcds]
             if debug:
                 display_sam2(pcds, box_3d, scores, window_prefix=f"{object} ")
-            
+
             #populate the predictions_3d dict
             predictions_3d[object] = {"boxes": box_3d, "scores": scores, "pcds": pcds, "rgb_masks": rgb_masks, "depth_masks": depth_masks}
             if debug:
@@ -131,7 +130,7 @@ class VisionPipe:
                     else:
                         match_idx = ious.index(max_iou)
                         pcd = self.tracked_objects[object]["pcds"][match_idx] + candidate_pcd
-                        pcd.voxel_down_sample(voxel_size=config["voxel_size"])
+                        pcd = pcd.voxel_down_sample(voxel_size=config["voxel_size"])
                         # Apply statistical outlier removal to denoise the point cloud
                         if config["statistical_outlier_removal"]:
                             pcd, ind = pcd.remove_statistical_outlier(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
@@ -175,6 +174,7 @@ class VisionPipe:
         """
         for object, prediction in self.tracked_objects.items():
             mask = prediction["scores"] > config["belief_threshold"]
+
             prediction["boxes"] = [prediction["boxes"][i] for i in range(len(mask)) if mask[i]]
             prediction["pcds"] = [prediction["pcds"][i] for i in range(len(mask)) if mask[i]]
             prediction["rgb_masks"] = [prediction["rgb_masks"][i] for i in range(len(mask)) if mask[i]]
@@ -191,7 +191,7 @@ class VisionPipe:
             top_candiate = candiates["pcds"][argmax1]
             return top_candiate, maxval1
         raise ValueError(f"Object {query} not found in tracked objects.")
-    
+
     def vis_belief2D(self, query, blocking=True, n_rows = 10, n_cols = 5, prefix=""):
         """
         Visualizes the belief scores of a given object in a bar plot and its RGB masks in a grid.
@@ -200,7 +200,7 @@ class VisionPipe:
             raise ValueError(f"Object {query} not found in tracked objects.")
         bundles = [(self.tracked_objects[query]["scores"][i], self.tracked_objects[query]["rgb_masks"][i]) for i in range(len(self.tracked_objects[query]["scores"]))]
         bundles = sorted(bundles, key=lambda x: x[0], reverse=True)
-        
+
         scores = [bundle[0] for bundle in bundles]
         # Create a bar plot of the scores
         indices = np.arange(len(scores))
@@ -209,7 +209,7 @@ class VisionPipe:
         plt.xlabel("Belief Rank")
         plt.ylabel("Belief Score")
         plt.title(f"{prefix}Belief Scores for '{query}'")
-        
+
         # Plot n_cols RGB masks in a grid of the top n_rows candidates
         n_rows = min(n_rows, len(bundles))
         max_imgs = max([len(rgb_masks) for _, rgb_masks in bundles[:n_rows]])
@@ -316,10 +316,10 @@ def test_VP(cap):
             print(f"{object=}")
             print(f"   {len(prediction['boxes'])=}, {len(prediction['pcds'])=}, {prediction['scores'].shape=}")
         print(f"\n\n")
-    
+
         # for q in config["test_querys"]:
         #     vp.vis_belief3D(q)
-    vp.vis_belief2D(query=config["test_querys"][0], blocking=True, n_rows=5, n_cols=3)
+    vp.vis_belief2D(query=config["test_querys"][0], blocking=True)
     #vp.display()
 
 
