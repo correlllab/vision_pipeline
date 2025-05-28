@@ -10,4 +10,4 @@ if __name__ == "__main__":
     while True:
         Larm_publisher.publish()
         time.sleep(1/60)  # Publish at 60 Hz
-        print(f"Publishing at {(time.time() - start_time):.2f}s")
+        print(f"Larm Publishing at {(time.time() - start_time):.2f}s")
