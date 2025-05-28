@@ -1,5 +1,5 @@
 import time
-from vision_pipeline.RealsenseInterface import RealSenseCameraPublisher
+from RealsenseInterface import RealSenseCameraPublisher
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
 if __name__ == "__main__":
