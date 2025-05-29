@@ -37,7 +37,7 @@ class CameraSensorData(IdlStruct, typename="CameraSensorData"):
     extrinsic_matrix: types.sequence[types.float32] # A list of 16 floats for a 4x4 matrix
 
 class RealSenseCameraPublisher:
-    def __init__(self, channel_name, width=None, height=None, fps=None, serial_number: str = None, InitChannelFactory = True):
+    def __init__(self, channel_name, width=640, height=480, fps=30, serial_number: str = None, InitChannelFactory = True):
         if InitChannelFactory:
             ChannelFactoryInitialize()
         # Create and configure pipeline
@@ -160,6 +160,8 @@ class RealSenseCameraSubscriber():
             return None, None, None, None
         rgb_image = np.array(msg.rgb_image.data, dtype=np.uint8).reshape((msg.rgb_image.height, msg.rgb_image.width, 3))
         depth_image = np.array(msg.depth_image.data, dtype=np.float32).reshape((msg.depth_image.height, msg.depth_image.width))
+        #rgb_image = np.zeros((msg.rgb_image.height, msg.rgb_image.width, 3), dtype=np.uint8)
+        #depth_image = np.zeros((msg.depth_image.height, msg.depth_image.width), dtype=np.float32)
         Intrinsics = np.array(msg.intrinsic_matrix, dtype=np.float32).reshape((3, 3))
         Extrinsics = np.array(msg.extrinsic_matrix, dtype=np.float32).reshape((4, 4))
         if display:
@@ -173,7 +175,7 @@ class RealSenseCameraSubscriber():
 
 if __name__ == "__main__":
     ChannelFactoryInitialize(id = 0, networkInterface="enx00e04c681314")
-    pub = RealSenseCameraPublisher("realsense/camera", width=640, height=480, fps=30, serial_number=None, InitChannelFactory=False)
+    pub = RealSenseCameraPublisher("realsense/camera", serial_number=None, InitChannelFactory=False)
     sub = RealSenseCameraSubscriber("realsense/camera", InitChannelFactory=False)
     while True:
         pub.publish()
