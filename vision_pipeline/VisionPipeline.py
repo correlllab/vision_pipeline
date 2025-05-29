@@ -12,16 +12,20 @@ dir_path = os.path.dirname(os.path.abspath(__file__))
 if dir_path not in sys.path:
     sys.path.insert(0, dir_path)
 
-from RealsenseInterface import RealSenseCamera
 from utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image
 from FoundationModels import OWLv2, SAM2_PC, display_owl, display_sam2
+from RealsenseInterface import RealSenseCameraSubscriber
+
+
 
 
 
 _script_dir = os.path.dirname(os.path.realpath(__file__))
 _config_path = os.path.join(_script_dir, 'config.json')
+fig_dir = os.path.join(_script_dir, 'figures')
+os.makedirs(fig_dir, exist_ok=True)
+os.makedirs(os.path.join(fig_dir, "VP"), exist_ok=True)
 config = json.load(open(_config_path, 'r'))
-
 
 class VisionPipe:
     def __init__(self):
@@ -192,7 +196,7 @@ class VisionPipe:
             return top_candiate, maxval1
         raise ValueError(f"Object {query} not found in tracked objects.")
 
-    def vis_belief2D(self, query, blocking=True, n_rows = 10, n_cols = 5, prefix=""):
+    def vis_belief2D(self, query, blocking=True, n_rows = 10, n_cols = 5, prefix="", save_dir=None):
         """
         Visualizes the belief scores of a given object in a bar plot and its RGB masks in a grid.
         """
@@ -209,6 +213,8 @@ class VisionPipe:
         plt.xlabel("Belief Rank")
         plt.ylabel("Belief Score")
         plt.title(f"{prefix}Belief Scores for '{query}'")
+        if save_dir is not None:
+            plt.savefig(os.path.join(save_dir, f"{prefix}_{query}_belief_scores.png"))
 
         # Plot n_cols RGB masks in a grid of the top n_rows candidates
         n_rows = min(n_rows, len(bundles))
@@ -224,6 +230,8 @@ class VisionPipe:
                 axes[i, j].imshow(rgb_masks[j])
                 axes[i, j].axis('off')
         fig.tight_layout()
+        if save_dir is not None:
+            plt.savefig(os.path.join(save_dir, f"{prefix}_{query}_belief_views.png"))
         plt.show(block=blocking)
         #plt.pause(0.1)
 
@@ -302,37 +310,58 @@ class VisionPipe:
         app.run()
 
 
-def test_VP(cap):
+def test_VP(sub):
     vp = VisionPipe()
-    for i in range(10):
-        ret, rgb_img, depth_img = cap.read(return_depth=True)
-        if not ret:
-            print("Error: Unable to read frame from the camera.")
-            break
-        I = cap.get_intrinsics()
+    for i in range(5):
+        rgb_img, depth_img, Intrinsics, Extrinsics = None, None, None, None
+        while rgb_img is None or depth_img is None or Intrinsics is None or Extrinsics is None:
+            print("Waiting for RGB-D data...")
+            rgb_img, depth_img, Intrinsics, Extrinsics = sub.read(display=False)
+            #print(f"Received RGB-D data: {type(rgb_img)}, {type(depth_img)}, {type(Intrinsics)}, {type(Extrinsics)}")
+
+        I = {
+            "fx": Intrinsics[0, 0],
+            "fy": Intrinsics[1, 1],
+            "cx": Intrinsics[0, 2],
+            "cy": Intrinsics[1, 2],
+            "width":rgb_img.shape[1],
+            "height":rgb_img.shape[0],
+        }
         print(f"Frame {i}:")
         predictions = vp.update(rgb_img, depth_img, config["test_querys"], I)
+        vp.vis_belief2D(query=config["test_querys"][0], blocking=False, prefix=f"T={i}", save_dir=os.path.join(fig_dir, "VP"))
+
         for object, prediction in predictions.items():
             print(f"{object=}")
             print(f"   {len(prediction['boxes'])=}, {len(prediction['pcds'])=}, {prediction['scores'].shape=}")
         print(f"\n\n")
 
-        # for q in config["test_querys"]:
+        #for q in config["test_querys"]:
         #     vp.vis_belief3D(q)
-    vp.vis_belief2D(query=config["test_querys"][0], blocking=True)
-    #vp.display()
+    vp.vis_belief2D(query=config["test_querys"][0], blocking=True, prefix= "Final",save_dir=os.path.join(fig_dir, "VP"))
+    vp.display()
 
 
 
 
 
 if __name__ == "__main__":
-    cap = RealSenseCamera()
-    I = cap.get_intrinsics()
-    ret, rgb_img, depth_img = cap.read(return_depth=True)
-    if not ret:
-        print("Error: Unable to read frame from the camera.")
-        exit(1)
+    sub = RealSenseCameraSubscriber(
+        channel_name="realsense/Head",
+        InitChannelFactory=True
+    )
+    rgb_img, depth_img, Intrinsics, Extrinsics = None, None, None, None
+    while rgb_img is None or depth_img is None or Intrinsics is None or Extrinsics is None:
+        print("Waiting for RGB-D data...")
+        rgb_img, depth_img, Intrinsics, Extrinsics = sub.read(display=False)
+        #print(f"Received RGB-D data: {type(rgb_img)}, {type(depth_img)}, {type(Intrinsics)}, {type(Extrinsics)}")
+
+    I = {
+        "fx": Intrinsics[0, 0],
+        "fy": Intrinsics[1, 1],
+        "cx": Intrinsics[0, 2],
+        "cy": Intrinsics[1, 2]
+    }
 
     print(f"\n\nTESTING VP")
-    test_VP(cap)
+    test_VP(sub)

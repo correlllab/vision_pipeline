@@ -6,7 +6,7 @@
     "min_3d_points":100,
     "min_depth":0,
 
-    "voxel_size": 0.05,
+    "voxel_size": 0.01,
     "statistical_outlier_removal": true,
     "statistical_nb_neighbors":20,
     "statistical_std_ratio":0.5,
@@ -15,9 +15,9 @@
     "radius_nb_points": 2,
     "iou_3d_reduction": 0.1,
 
-    "iou_3d_matching": 0.9,
+    "iou_3d_matching": 0.75,
     "belief_threshold": 0.25,
     "test_querys":["drill", "wrench", "screw driver"],
     "false_negative_rate":0.10,
-    "sigmoid_gain": 0.5
+    "sigmoid_gain": 2
 }

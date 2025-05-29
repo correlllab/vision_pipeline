@@ -175,6 +175,8 @@ class RealSenseCameraSubscriber():
             return None, None, None, None
         rgb_bytes = zlib.decompress(bytes(msg.rgb_image.data))
         rgb_image = np.frombuffer(rgb_bytes, dtype=np.uint8).reshape(msg.rgb_image.height, msg.rgb_image.width, 3)
+        rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
+
 
         depth_bytes = zlib.decompress(bytes(msg.depth_image.data))
         depth_image = np.frombuffer(depth_bytes, dtype=np.float32).reshape(msg.depth_image.height, msg.depth_image.width)
@@ -188,8 +190,7 @@ class RealSenseCameraSubscriber():
         Extrinsics = np.array(msg.extrinsic_matrix, dtype=np.float32).reshape((4, 4))
         if display:
             print(f"Received message: {type(msg)}")
-            rgb_img_display = cv2.cvtColor(rgb_image.copy(), cv2.COLOR_BGR2RGB)
-            cv2.imshow(f"Sub {self.channel_name}_RGB Image", rgb_img_display)
+            cv2.imshow(f"Sub {self.channel_name}_RGB Image", rgb_image)
             cv2.imshow(f"Sub {self.channel_name}_Depth Image", depth_image)
             cv2.waitKey(1)
         return rgb_image, depth_image, Intrinsics, Extrinsics

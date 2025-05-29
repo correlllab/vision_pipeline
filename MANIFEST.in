@@ -1,0 +1,3 @@
+include README.md
+recursive-include vision_pipeline *.json
+recursive-include vision_pipeline/figures *

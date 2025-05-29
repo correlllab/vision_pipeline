@@ -20,7 +20,6 @@ import sys
 dir_path = os.path.dirname(os.path.abspath(__file__))
 if dir_path not in sys.path:
     sys.path.insert(0, dir_path)
-from RealsenseInterface import get_cap, RealSenseCamera
 from utils import get_points_and_colors, nms
 
 
@@ -32,7 +31,6 @@ os.makedirs(fig_dir, exist_ok=True)
 os.makedirs(os.path.join(fig_dir, "SAM2"), exist_ok=True)
 os.makedirs(os.path.join(fig_dir, "OWLV2"), exist_ok=True)
 config = json.load(open(_config_path, 'r'))
-
 
 class OWLv2:
     def __init__(self):
@@ -209,7 +207,7 @@ class SAM2_PC:
         - reduced_scores: List of reduced scores
         """
         #Run sam2 on all the boxes
-        self.sam_predictor.set_image(rgb_img)
+        self.sam_predictor.set_image(rgb_img.copy())
         sam_mask = None
         sam_scores = None
         sam_logits = None
@@ -249,8 +247,11 @@ class SAM2_PC:
             plt.show()
 
         #Get points and colors from masked depth and rgb images
+        #print("here 1")
         tensor_depth = torch.from_numpy(masked_depth).to(self.device)
         tensor_rgb = torch.from_numpy(masked_rgb).to(self.device)
+        #print("here 2")
+
         fx = intrinsics["fx"]
         fy = intrinsics["fy"]
         cx = intrinsics["cx"]
@@ -320,7 +321,7 @@ class SAM2_PC:
         #z = (reduced_scores - mu) / sigma
         #reduced_scores = F.softmax(z, dim=0)
         #reduced_scores = reduced_scores / reduced_scores.sum()
-        reduced_scores = F.sigmoid(reduced_scores*config["sigmoid_gain"])
+        #reduced_scores = F.sigmoid(reduced_scores*config["sigmoid_gain"])
         if debug:
             print(f"   {len(full_pcds)=}, {len(full_scores)=}, {len(full_bounding_boxes_3d)=}, {len(full_masked_rgb)=}, {len(full_masked_depth)=}")
             print(f"   {len(reduced_pcds)=}, {len(reduced_bounding_boxes_3d)=}, {reduced_scores.shape=}, {len(reduced_rgb_masks)=}, {len(reduced_depth_masks)=}")
@@ -384,18 +385,30 @@ def test_sam(rgb_img, depth_img, predictions, intrinsics, debug):
         fig.suptitle(f"{query_object} RGB and Depth Masks")
         plt.show(block = False)
         #print("begin display:")
-        #display_sam2(point_clouds, boxes, scores, window_prefix=f"{query_object} ")
+        display_sam2(point_clouds, boxes, scores, window_prefix=f"{query_object}")
     plt.show(block = True)
     return None
 
 
 if __name__=="__main__":
-    cap = RealSenseCamera()
-    I = cap.get_intrinsics()
-    ret, rgb_img, depth_img = cap.read(return_depth=True)
-    if not ret:
-        print("Error: Unable to read frame from the camera.")
-        exit(1)
+    from RealsenseInterface import RealSenseCameraSubscriber
+
+    sub = RealSenseCameraSubscriber(
+        channel_name="realsense/Head",
+        InitChannelFactory=True
+    )
+    rgb_img, depth_img, Intrinsics, Extrinsics = None, None, None, None
+    while rgb_img is None or depth_img is None or Intrinsics is None or Extrinsics is None:
+        print("Waiting for RGB-D data...")
+        rgb_img, depth_img, Intrinsics, Extrinsics = sub.read(display=False)
+        #print(f"Received RGB-D data: {type(rgb_img)}, {type(depth_img)}, {type(Intrinsics)}, {type(Extrinsics)}")
+
+    I = {
+        "fx": Intrinsics[0, 0],
+        "fy": Intrinsics[1, 1],
+        "cx": Intrinsics[0, 2],
+        "cy": Intrinsics[1, 2]
+    }
 
     print(f"\n\nTESTING OWL")
     predictions = test_OWL(rgb_img, debug=False)

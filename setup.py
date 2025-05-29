@@ -1,33 +1,35 @@
-#!/usr/bin/env python3
-import os
-from setuptools import find_packages, setup
+# setup.py
+from setuptools import setup, find_packages
+import io, os
 
-package_name = 'vision_pipeline'
+# read your README for the long description
+here = os.path.abspath(os.path.dirname(__file__))
+with io.open(os.path.join(here, 'README.md'), encoding='utf-8') as f:
+    long_description = f.read()
 
 setup(
-    name=package_name,
-    version='0.0.1',
-    packages=find_packages(exclude=['test']),
-    data_files=[
-        ('share/ament_index/resource_index/packages',
-            ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml']),
-        # include configuration file
-        ('share/' + package_name, [os.path.join('vision_pipeline', 'config.json')]),
+    name='vision-pipeline',
+    version='0.1.0',
+    author='Your Name',
+    author_email='you@example.com',
+    description='Probabilistic 3D vision pipeline',
+    long_description=long_description,
+    long_description_content_type='text/markdown',
+    url='https://github.com/yourusername/VisionPipeline',
+    packages=find_packages(exclude=['tests', '__pycache__']),
+    include_package_data=True,            # pick up config.json + figures
+    install_requires=[
+        'numpy',
+        'torch',
+        'torchvision',
+        'opencv-python',
+        'open3d',
+        # …any other deps…
     ],
-    install_requires=['setuptools'],
-    zip_safe=True,
-    maintainer='todo',
-    maintainer_email='todo@gmail.com',
-    description='Vision Pipeline ROS2 package',
-    license='MIT',
-    tests_require=['pytest'],
-    entry_points={
-        'console_scripts': [
-            'camera = vision_pipeline.RosWrappers:TestSubscriber',
-            'foundationmodels = vision_pipeline.RosWrappers:TestFoundationModels',
-            'visionpipeline = vision_pipeline.RosWrappers:TestVisionPipe',
-        ],
-    },
+    classifiers=[
+        'Programming Language :: Python :: 3.10',
+        'License :: OSI Approved :: MIT License',
+        'Operating System :: OS Independent',
+    ],
+    python_requires='>=3.8',
 )
-
