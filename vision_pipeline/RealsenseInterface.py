@@ -5,18 +5,13 @@ import pyrealsense2 as rs
 
 from dataclasses import dataclass
 from cyclonedds.idl import IdlStruct
-import cyclonedds.idl.types as types
 
+import cyclonedds.idl.types as types
 from typing import List
 from unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize, ChannelSubscriber
+import zlib
 
-# Define a fixed-size sequence for a 3x3 matrix (intrinsic)
-# You might want to define a 4x4 for extrinsic if it's SE(3)
-# For simplicity, let's use List[float] for matrices, assuming
-# they'll be flattened and the receiver knows their dimensions.
-# Or, if we want fixed sizes, we can use arrays in IDL (e.g., float matrix[3][3])
-# but IdlStruct with Python lists is simpler for direct representation.
-
+#print(f"{dir(types)=}")
 @dataclass
 class Image(IdlStruct, typename="Image"):
     """
@@ -24,7 +19,7 @@ class Image(IdlStruct, typename="Image"):
     """
     width: types.uint32
     height: types.uint32
-    data: types.sequence[types.float32] # Using List[int] to represent byte data; DDS doesn't have a direct 'bytes' type, often uses sequence of octets (uint8)
+    data: types.sequence[types.uint8]#types.sequence[types.float32] # Using List[int] to represent byte data; DDS doesn't have a direct 'bytes' type, often uses sequence of octets (uint8)
 
 @dataclass
 class CameraSensorData(IdlStruct, typename="CameraSensorData"):
@@ -37,7 +32,7 @@ class CameraSensorData(IdlStruct, typename="CameraSensorData"):
     extrinsic_matrix: types.sequence[types.float32] # A list of 16 floats for a 4x4 matrix
 
 class RealSenseCameraPublisher:
-    def __init__(self, channel_name, width=640, height=480, fps=30, serial_number: str = None, InitChannelFactory = True):
+    def __init__(self, channel_name, width=None, height=None, fps=60, serial_number: str = None, InitChannelFactory = True):
         if InitChannelFactory:
             ChannelFactoryInitialize()
         # Create and configure pipeline
@@ -88,16 +83,31 @@ class RealSenseCameraPublisher:
 
         depth_image = np.asanyarray(depth_frame.get_data()).astype(np.float32)
         depth_image *= self.depth_scale
+        #print(f"depth: {type(depth_image)} {depth_image.shape} {depth_image.dtype} {depth_image.min()} {depth_image.max()}")
+        #print(f"color {type(color_image)} {color_image.shape} {color_image.dtype} {color_image.min()} {color_image.max()}")
+        #w = 100
+        #h = 100
+        #color_image = np.random.randint(0, 256, (h, w, 3), dtype=np.uint8)
+        #depth_image = (np.random.rand(h, w) * 255).astype(np.float32)
+
+        color_bytes = color_image.tobytes()
+        depth_bytes = depth_image.tobytes()
+
+        compressed_color = zlib.compress(color_bytes)
+        compressed_depth = zlib.compress(depth_bytes)
+        #print(f"color_bytes: {len(color_bytes)} depth_bytes: {len(depth_bytes)}")
+        #print(f"{type(color_bytes)} {type(depth_bytes)}")
+
         msg = CameraSensorData(
             rgb_image=Image(
                 width=self.width,
                 height=self.height,
-                data=color_image.flatten().tolist()  # Flatten to 1D list
+                data=compressed_color#color_image.flatten().tolist()  # Flatten to 1D list
             ),
             depth_image=Image(
                 width=self.width,
                 height=self.height,
-                data=depth_image.flatten().tolist()  # Flatten to 1D list
+                data=compressed_depth#depth_image.flatten().tolist()  # Flatten to 1D list
             ),
             intrinsic_matrix=self.get_intrinsics(),
             extrinsic_matrix=self.get_extrinsics()
@@ -151,22 +161,30 @@ class RealSenseCameraSubscriber():
             ChannelFactoryInitialize()
         self.channel_name = channel_name
         self.subscriber = ChannelSubscriber(channel_name, CameraSensorData)
-        self.subscriber.Init(queueLen=10)
+        self.subscriber.Init()
 
     def read(self, display=False):
         msg = self.subscriber.Read(0.5)  # 0.5 seconds timeout
         if msg is None:
             print(f"No message received on channel {self.channel_name}.")
             return None, None, None, None
-        rgb_image = np.array(msg.rgb_image.data, dtype=np.uint8).reshape((msg.rgb_image.height, msg.rgb_image.width, 3))
-        depth_image = np.array(msg.depth_image.data, dtype=np.float32).reshape((msg.depth_image.height, msg.depth_image.width))
+        rgb_bytes = zlib.decompress(bytes(msg.rgb_image.data))
+        rgb_image = np.frombuffer(rgb_bytes, dtype=np.uint8).reshape(msg.rgb_image.height, msg.rgb_image.width, 3)
+
+        depth_bytes = zlib.decompress(bytes(msg.depth_image.data))
+        depth_image = np.frombuffer(depth_bytes, dtype=np.float32).reshape(msg.depth_image.height, msg.depth_image.width)
+
+
+        #rgb_image = np.array(msg.rgb_image.data, dtype=np.uint8).reshape((msg.rgb_image.height, msg.rgb_image.width, 3))
+        #depth_image = np.array(msg.depth_image.data, dtype=np.float32).reshape((msg.depth_image.height, msg.depth_image.width))
         #rgb_image = np.zeros((msg.rgb_image.height, msg.rgb_image.width, 3), dtype=np.uint8)
         #depth_image = np.zeros((msg.depth_image.height, msg.depth_image.width), dtype=np.float32)
         Intrinsics = np.array(msg.intrinsic_matrix, dtype=np.float32).reshape((3, 3))
         Extrinsics = np.array(msg.extrinsic_matrix, dtype=np.float32).reshape((4, 4))
         if display:
             print(f"Received message: {type(msg)}")
-            cv2.imshow(f"{self.channel_name}_RGB Image", rgb_image)
+            rgb_img_display = cv2.cvtColor(rgb_image.copy(), cv2.COLOR_BGR2RGB)
+            cv2.imshow(f"{self.channel_name}_RGB Image", rgb_img_display)
             cv2.imshow(f"{self.channel_name}_Depth Image", depth_image)
             cv2.waitKey(1)
         return rgb_image, depth_image, Intrinsics, Extrinsics
@@ -174,7 +192,7 @@ class RealSenseCameraSubscriber():
         self.subscriber.Close()
 
 if __name__ == "__main__":
-    ChannelFactoryInitialize(id = 0, networkInterface="enx00e04c681314")
+    ChannelFactoryInitialize()
     pub = RealSenseCameraPublisher("realsense/camera", serial_number=None, InitChannelFactory=False)
     sub = RealSenseCameraSubscriber("realsense/camera", InitChannelFactory=False)
     while True:
