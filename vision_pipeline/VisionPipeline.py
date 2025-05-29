@@ -16,10 +16,6 @@ from utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image
 from FoundationModels import OWLv2, SAM2_PC, display_owl, display_sam2
 from RealsenseInterface import RealSenseCameraSubscriber
 
-
-
-
-
 _script_dir = os.path.dirname(os.path.realpath(__file__))
 _config_path = os.path.join(_script_dir, 'config.json')
 fig_dir = os.path.join(_script_dir, 'figures')
@@ -43,7 +39,7 @@ class VisionPipe:
         self.owv2 = OWLv2()
         self.sam2 = SAM2_PC()
         self.tracked_objects = {}
-    def update(self, rgb_img, depth_img, querries, I, obs_pose=[0,0,0,0,0,0], debug = False):
+    def update(self, rgb_img, depth_img, querries, I, obs_pose, debug = False):
         """
         Generates a set of 3D predictions and then updates the tracked objects based on the new observations.
         predictions3d[object_name] = {
@@ -328,7 +324,7 @@ def test_VP(sub):
             "height":rgb_img.shape[0],
         }
         print(f"Frame {i}:")
-        predictions = vp.update(rgb_img, depth_img, config["test_querys"], I)
+        predictions = vp.update(rgb_img, depth_img, config["test_querys"], [0,0,0,0,0,0], I)
         vp.vis_belief2D(query=config["test_querys"][0], blocking=False, prefix=f"T={i}", save_dir=os.path.join(fig_dir, "VP"))
 
         for object, prediction in predictions.items():
