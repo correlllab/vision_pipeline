@@ -65,10 +65,11 @@ class RealSenseCameraPublisher:
         self.height = self.profile.get_stream(rs.stream.color).as_video_stream_profile().height()
         self.fps = self.profile.get_stream(rs.stream.color).as_video_stream_profile().fps()
         self.intrinsics = self.get_intrinsics()
+        self.channel_name = channel_name
         self.publisher = ChannelPublisher(channel_name, CameraSensorData)
         self.publisher.Init()
 
-    def publish(self):
+    def publish(self, display=False):
         frames = self.pipeline.wait_for_frames()
         aligned = self.align.process(frames)
         color_frame = aligned.get_color_frame()
@@ -89,7 +90,11 @@ class RealSenseCameraPublisher:
         #h = 100
         #color_image = np.random.randint(0, 256, (h, w, 3), dtype=np.uint8)
         #depth_image = (np.random.rand(h, w) * 255).astype(np.float32)
-
+        if display:
+            rgb_img_display = cv2.cvtColor(color_image.copy(), cv2.COLOR_BGR2RGB)
+            cv2.imshow(f"Pub {self.channel_name}_RGB Image", rgb_img_display)
+            cv2.imshow(f"Pub {self.channel_name}_Depth Image", depth_image)
+            cv2.waitKey(1)
         color_bytes = color_image.tobytes()
         depth_bytes = depth_image.tobytes()
 
@@ -184,8 +189,8 @@ class RealSenseCameraSubscriber():
         if display:
             print(f"Received message: {type(msg)}")
             rgb_img_display = cv2.cvtColor(rgb_image.copy(), cv2.COLOR_BGR2RGB)
-            cv2.imshow(f"{self.channel_name}_RGB Image", rgb_img_display)
-            cv2.imshow(f"{self.channel_name}_Depth Image", depth_image)
+            cv2.imshow(f"Sub {self.channel_name}_RGB Image", rgb_img_display)
+            cv2.imshow(f"Sub {self.channel_name}_Depth Image", depth_image)
             cv2.waitKey(1)
         return rgb_image, depth_image, Intrinsics, Extrinsics
     def shutdown(self):
@@ -196,5 +201,5 @@ if __name__ == "__main__":
     pub = RealSenseCameraPublisher("realsense/camera", serial_number=None, InitChannelFactory=False)
     sub = RealSenseCameraSubscriber("realsense/camera", InitChannelFactory=False)
     while True:
-        pub.publish()
+        pub.publish(display=True)
         color, depth, intrinsics, extrinsics = sub.read(display=True)
