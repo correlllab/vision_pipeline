@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import numpy as np
 import cv2
-import pyrealsense2 as rs
+#import pyrealsense2 as rs
 
 from dataclasses import dataclass
 from cyclonedds.idl import IdlStruct

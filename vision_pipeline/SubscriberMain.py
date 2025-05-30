@@ -3,7 +3,7 @@ from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from RealsenseInterface import RealSenseCameraSubscriber
 
 if __name__ == "__main__":
-    ChannelFactoryInitialize(networkInterface= "wlp5s0")
+    ChannelFactoryInitialize(networkInterface= "enx00e04c681314")
     Head_sub = RealSenseCameraSubscriber(
         channel_name="realsense/Head",
         InitChannelFactory=False
