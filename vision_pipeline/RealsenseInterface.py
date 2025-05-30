@@ -118,7 +118,7 @@ class RealSenseCameraPublisher:
             extrinsic_matrix=self.get_extrinsics()
         )
         #print(f"Publishing message: {type(msg)}")
-        self.publisher.Write(msg)  # 0.5 seconds timeout
+        self.publisher.Write(msg)
     def get_intrinsics(self):
         """
         Returns the color camera intrinsics:

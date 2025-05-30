@@ -120,6 +120,7 @@ def pose_to_matrix(pose: np.ndarray) -> np.ndarray:
     Convert a 6-vector [x, y, z, roll, pitch, yaw] (radians) 
     into a 4×4 homogeneous transform.
     """
+    pose = [float(p) for p in pose]  # ensure float type
     x, y, z, roll, pitch, yaw = pose
 
     # Rotation about X axis (roll)
