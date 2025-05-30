@@ -15,7 +15,7 @@ if dir_path not in sys.path:
 from utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image
 from FoundationModels import OWLv2, SAM2_PC, display_owl, display_sam2
 from RealsenseInterface import RealSenseCameraSubscriber
-
+import threading
 _script_dir = os.path.dirname(os.path.realpath(__file__))
 _config_path = os.path.join(_script_dir, 'config.json')
 fig_dir = os.path.join(_script_dir, 'figures')
@@ -39,7 +39,10 @@ class VisionPipe:
         self.owv2 = OWLv2()
         self.sam2 = SAM2_PC()
         self.tracked_objects = {}
-    def update(self, rgb_img, depth_img, querries, I, obs_pose, debug = False):
+        self.update_count = 0
+
+
+    def update(self, rgb_img, depth_img, querries, I, obs_pose, debug = False, display=False):
         """
         Generates a set of 3D predictions and then updates the tracked objects based on the new observations.
         predictions3d[object_name] = {
@@ -73,6 +76,9 @@ class VisionPipe:
                 print(f"   {len(predictions_3d[object]['boxes'])=}, {len(predictions_3d[object]['pcds'])=}, {predictions_3d[object]['scores'].shape=}, {predictions_3d[object]['rgb_masks'].shape=}, {predictions_3d[object]['depth_masks'].shape=}")
         #update the tracked objects with the new predictions
         self.update_tracked_objects(predictions_3d, obs_pose, I, debug=debug)
+        self.update_count += 1
+        if display:
+            self.display()
         return self.tracked_objects
 
     def update_tracked_objects(self, predictions_3d, obs_pose, I, debug = False):
@@ -253,30 +259,22 @@ class VisionPipe:
         # 4) Add each point cloud and box to the scene
         for idx, pc in enumerate(pcds):
             vis.add_geometry(f"pcd_{idx}", pc)
-        for idx, box in enumerate(bboxes):
+        for idx, (box, score) in enumerate(bboxes, scores):
             vis.add_geometry(f"box_{idx}", box)
-
-        # 5) Annotate each box’s center with its score
-        for box, score in zip(bboxes, scores):
-            # get_center() works for AABB, OBB, and mesh
             center = box.get_center() if hasattr(box, "get_center") else np.asarray(box.vertices).mean(axis=0)
             vis.add_3d_label(center, f"{float(score):.3f}")
+            
 
         # 6) Camera & run
         vis.reset_camera_to_default()
         app.add_window(vis)
         app.run()
-
     def display(self):
-        """
-        Displays the tracked objects in a 3D visualizer using Open3D.
-        """
-
         app = gui.Application.instance
         app.initialize()
 
         # 2) Create an O3DVisualizer window
-        vis = o3d.visualization.O3DVisualizer("Final finding", 1024, 768)
+        vis = o3d.visualization.O3DVisualizer(f"Beliefs at T={self.update_count}", 1024, 768)
         vis.show_settings = True
 
         # 3) Add a camera‐frame axis
@@ -286,27 +284,21 @@ class VisionPipe:
         )
         vis.add_geometry("CameraFrame", camera_frame)
 
-        # 4) For each query: get its point cloud + belief, add both geometry + label
-        for q in self.tracked_objects.keys():
-            pcd, belief = self.query(q)
-            # add the raw point cloud
-            vis.add_geometry(f"pcd_{q}", pcd)
-            # compute a label position (centroid of the cloud)
-            pts = np.asarray(pcd.points)
-            if pts.size:
-                center = pts.mean(axis=0)
-            else:
-                center = np.array([0.0, 0.0, 0.0])
-            # place a 3D text label of the belief
-            vis.add_3d_label(center, f"{q}:{belief:.3f}")
 
+        for query in self.tracked_objects.keys():
+            for idx, pc in enumerate(self.tracked_objects[query]["pcds"]):
+                vis.add_geometry(f"pcd_{query}_{idx}", pc)
+            for idx, (box, score) in enumerate(zip(self.tracked_objects[query]["boxes"], self.tracked_objects[query]["scores"])):
+                vis.add_geometry(f"box_{query}_{idx}", box)
+                center = box.get_center() if hasattr(box, "get_center") else np.asarray(box.vertices).mean(axis=0)
+                vis.add_3d_label(center, f"{query}: {float(score):.3f}")
         # 5) Finalize camera & run
         vis.reset_camera_to_default()
         app.add_window(vis)
         app.run()
 
 
-def test_VP(sub):
+def test_VP(sub, display2d=False, display3d_query=False, display3d_all=True):
     vp = VisionPipe()
     for i in range(5):
         rgb_img, depth_img, Intrinsics, Extrinsics = None, None, None, None
@@ -324,18 +316,42 @@ def test_VP(sub):
             "height":rgb_img.shape[0],
         }
         print(f"Frame {i}:")
-        predictions = vp.update(rgb_img, depth_img, config["test_querys"], [0,0,0,0,0,0], I)
-        vp.vis_belief2D(query=config["test_querys"][0], blocking=False, prefix=f"T={i}", save_dir=os.path.join(fig_dir, "VP"))
+        predictions = vp.update(rgb_img, depth_img, config["test_querys"], I, [0.0]*6, display=display3d_all)
+        if display2d:
+            vp.vis_belief2D(query=config["test_querys"][0], blocking=True, prefix=f"T={i}", save_dir=os.path.join(fig_dir, "VP"))
 
         for object, prediction in predictions.items():
             print(f"{object=}")
             print(f"   {len(prediction['boxes'])=}, {len(prediction['pcds'])=}, {prediction['scores'].shape=}")
         print(f"\n\n")
+        if display3d_query:
+            for q in config["test_querys"]:
+                vp.vis_belief3D(q)
+    if display2d:
+        vp.vis_belief2D(query=config["test_querys"][0], blocking=True, prefix= "Final",save_dir=os.path.join(fig_dir, "VP"))
+    if display3d_all:
+        app = gui.Application.instance
+        app.initialize()
 
-        #for q in config["test_querys"]:
-        #     vp.vis_belief3D(q)
-    vp.vis_belief2D(query=config["test_querys"][0], blocking=True, prefix= "Final",save_dir=os.path.join(fig_dir, "VP"))
-    vp.display()
+        # 2) Create an O3DVisualizer window
+        vis = o3d.visualization.O3DVisualizer(f"Final Beliefs", 1024, 768)
+        vis.show_settings = True
+
+        # 3) Add a camera‐frame axis
+        camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
+            size=0.2,
+            origin=[0, 0, 0]
+        )
+        vis.add_geometry("CameraFrame", camera_frame)
+        for q in config["test_querys"]:
+            pcd, score = vp.query(q)
+            vis.add_geometry(f"pcd_{q}", pcd)
+            vis.add_3d_label(pcd.get_center(), f"{q}: {float(score):.3f}")
+        vis.reset_camera_to_default()
+        app.add_window(vis)
+        app.run()
+
+
 
 
 

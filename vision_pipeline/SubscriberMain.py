@@ -3,7 +3,7 @@ from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from RealsenseInterface import RealSenseCameraSubscriber
 
 if __name__ == "__main__":
-    ChannelFactoryInitialize()
+    ChannelFactoryInitialize(networkInterface= "wlp5s0")
     Head_sub = RealSenseCameraSubscriber(
         channel_name="realsense/Head",
         InitChannelFactory=False
@@ -12,7 +12,7 @@ if __name__ == "__main__":
         channel_name="realsense/LArm",
         InitChannelFactory=False
     )
-
+    # sub = RealSenseCameraSubscriber("realsense/camera", InitChannelFactory=False)
     period  = 1.0 / 60.0
     next_ts = time.perf_counter()
 
@@ -30,6 +30,7 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         Head_sub.read(display=True)
         LArm_sub.read(display=True)
+        # sub.read(display=True)
         t1 = time.perf_counter()
 
         # schedule the next iteration

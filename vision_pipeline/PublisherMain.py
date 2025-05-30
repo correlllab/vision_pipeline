@@ -3,7 +3,7 @@ from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from RealsenseInterface import RealSenseCameraPublisher
 
 if __name__ == "__main__":
-    ChannelFactoryInitialize()
+    ChannelFactoryInitialize(networkInterface = "eth0")
     head_pub = RealSenseCameraPublisher(
         channel_name='realsense/Head',
         serial_number="250122072330",
@@ -14,7 +14,7 @@ if __name__ == "__main__":
         serial_number="838212072778",
         InitChannelFactory=False
     )
-    #pub = RealSenseCameraPublisher("realsense/camera", InitChannelFactory=False)
+    # pub = RealSenseCameraPublisher("realsense/camera", InitChannelFactory=False)
     period   = 1.0 / 60.0
     next_ts  = time.perf_counter()
 
@@ -32,7 +32,7 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         head_pub.publish()
         larm_pub.publish()
-        #pub.publish()
+        # pub.publish()
         t1 = time.perf_counter()
 
         # --- book-keep for next frame ---
