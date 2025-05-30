@@ -53,6 +53,7 @@ class VisionPipe:
             self.vis.show_settings = True
             self.app.add_window(self.vis)
             self.app.run()
+            self.app.quit()
 
         self.gui_thread = threading.Thread(target=gui_thread, args=(self,))
         self.gui_thread.start()
@@ -96,7 +97,7 @@ class VisionPipe:
         #update the tracked objects with the new predictions
         self.update_tracked_objects(predictions_3d, obs_pose, I, debug=debug)
         self.update_count += 1
-        
+
         self.update_gui()
         return self.tracked_objects
 
@@ -310,7 +311,7 @@ def test_VP(sub, display2d=False):
 if __name__ == "__main__":
     from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
-    ChannelFactoryInitialize(networkInterface= "wlp5s0")
+    ChannelFactoryInitialize(networkInterface= "enx00e04c681314")
 
     sub = RealSenseCameraSubscriber(
         channel_name="realsense/Head",
