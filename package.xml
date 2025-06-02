@@ -2,19 +2,27 @@
 <package format="3">
   <name>vision_pipeline</name>
   <version>0.1.0</version>
-  <description>
-    ROS 2 Python vision pipeline nodes (PublisherMain, SubscriberMain, RobotMain, VisionPipeline, etc.)
-  </description>
-
-  <!-- Replace with a valid email address -->
-  <maintainer email="max@example.com">Max Conway</maintainer>
-
+  <description>Vision pipeline that uses Intel RealSense, Torch, and OpenCV</description>
   <license>Apache-2.0</license>
 
-  <!-- Build tool -->
+  <!-- Tool for building a Python-based ROS2 package -->
   <buildtool_depend>ament_python</buildtool_depend>
 
-  <!-- Runtime dependencies -->
-  <exec_depend>rclpy</exec_depend>
-  <!-- (add other <exec_depend> lines as needed) -->
+  <!-- ROS-level dependencies -->
+  <!-- If you rely on realsense2_camera, use its actual ROS 2 package name. -->
+  <depend>realsense2_camera</depend>
+  <depend>cv_bridge</depend>
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+
+  <!-- If you publish/subscribe using image_transport or other image APIs -->
+  <depend>image_transport</depend>
+  <depend>std_msgs</depend>
+
+  <!-- Non-ROS system dependencies (optional but recommended for documentation) -->
+  <!-- torch and opencv-python come from pip, so we do NOT list them as <depend>. -->
+  <!-- Instead, we'll install them via setup.py's install_requires. -->
+
+  <maintainer email="max@youremail.com">Max Conway</maintainer>
+  <author email="max@youremail.com">Max Conway</author>
 </package>
