@@ -14,7 +14,6 @@ if dir_path not in sys.path:
 
 from utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image
 from FoundationModels import OWLv2, SAM2_PC, display_owl, display_sam2
-from RealsenseInterface import RealSenseCameraSubscriber
 import threading
 _script_dir = os.path.dirname(os.path.realpath(__file__))
 _config_path = os.path.join(_script_dir, 'config.json')
@@ -291,28 +290,46 @@ class VisionPipe:
                 self.vis.add_3d_label(center, f"{query}: {float(score):.3f}")
 
 
-def test_VP(sub, display2d=False):
+def test_VP(display2d=False):
+    import pyrealsense2 as rs
+
+    pipeline = rs.pipeline()
+    cfg = rs.config()
+    profile = pipeline.start(cfg)
+
+    sensor = profile.get_device().first_depth_sensor()
+    depth_scale = sensor.get_depth_scale()
+
+    align = rs.align(rs.stream.color)
+
+    video_prof = profile.get_stream(rs.stream.color).as_video_stream_profile()
+    intrinsics = video_prof.get_intrinsics()
+
+    
+
     vp = VisionPipe()
     i =0
     while True:
-        rgb_img, depth_img, Intrinsics, Extrinsics = None, None, None, None
-        while rgb_img is None or depth_img is None or Intrinsics is None or Extrinsics is None:
-            try:
-                print("Waiting for RGB-D data...")
-                rgb_img, depth_img, Intrinsics, Extrinsics = sub.read(display=False)
-                #print(f"Received RGB-D data: {type(rgb_img)}, {type(depth_img)}, {type(Intrinsics)}, {type(Extrinsics)}")
-            except KeyboardInterrupt:
-                print("KeyboardInterrupt received, exiting...")
-                exit(0)
+        frames = pipeline.wait_for_frames()
+        aligned = align.process(frames)
+
+        color_frame = aligned.get_color_frame()
+        rgb_img = np.asanyarray(color_frame.get_data())
+
+        depth_frame = aligned.get_depth_frame()
+        depth_img = np.asanyarray(depth_frame.get_data()).astype(np.float32)
+        depth_img *= depth_scale
+        
 
         I = {
-            "fx": Intrinsics[0, 0],
-            "fy": Intrinsics[1, 1],
-            "cx": Intrinsics[0, 2],
-            "cy": Intrinsics[1, 2],
-            "width":rgb_img.shape[1],
-            "height":rgb_img.shape[0],
+            "fx": intrinsics.fx,
+            "fy": intrinsics.fy,
+            "cx": intrinsics.ppx,
+            "cy": intrinsics.ppy,
+            "width": rgb_img.shape[1],
+            "height": rgb_img.shape[0],
         }
+            
         print(f"Frame {i}:")
         #print(f"   {rgb_img.shape=}, {depth_img.shape=}, {I=}")
         predictions = vp.update(rgb_img, depth_img, config["test_querys"], I, [0.0]*6)
@@ -330,29 +347,5 @@ def test_VP(sub, display2d=False):
 
 
 if __name__ == "__main__":
-    from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-
-    ChannelFactoryInitialize(networkInterface= "lo")
-
-    sub = RealSenseCameraSubscriber(
-        channel_name="realsense/camera",
-        InitChannelFactory=False
-    )
-    rgb_img, depth_img, Intrinsics, Extrinsics = None, None, None, None
-    while rgb_img is None or depth_img is None or Intrinsics is None or Extrinsics is None:
-        try:
-            print("Waiting for RGB-D data...")
-            rgb_img, depth_img, Intrinsics, Extrinsics = sub.read(display=False)
-            #print(f"Received RGB-D data: {type(rgb_img)}, {type(depth_img)}, {type(Intrinsics)}, {type(Extrinsics)}")
-        except KeyboardInterrupt:
-            print("KeyboardInterrupt received, exiting...")
-            exit(0)
-    I = {
-        "fx": Intrinsics[0, 0],
-        "fy": Intrinsics[1, 1],
-        "cx": Intrinsics[0, 2],
-        "cy": Intrinsics[1, 2]
-    }
-
     print(f"\n\nTESTING VP")
-    test_VP(sub)
+    test_VP()

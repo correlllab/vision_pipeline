@@ -394,24 +394,38 @@ def test_sam(rgb_img, depth_img, predictions, intrinsics, debug):
     return None
 
 
-if __name__=="__main__":
-    from RealsenseInterface import RealSenseCameraSubscriber
 
-    sub = RealSenseCameraSubscriber(
-        channel_name="realsense/Head",
-        InitChannelFactory=True
-    )
-    rgb_img, depth_img, Intrinsics, Extrinsics = None, None, None, None
-    while rgb_img is None or depth_img is None or Intrinsics is None or Extrinsics is None:
-        print("Waiting for RGB-D data...")
-        rgb_img, depth_img, Intrinsics, Extrinsics = sub.read(display=False)
-        #print(f"Received RGB-D data: {type(rgb_img)}, {type(depth_img)}, {type(Intrinsics)}, {type(Extrinsics)}")
+if __name__ == "__main__":
+    import pyrealsense2 as rs
+
+    pipeline = rs.pipeline()
+    cfg = rs.config()
+    profile = pipeline.start(cfg)
+
+    sensor = profile.get_device().first_depth_sensor()
+    depth_scale = sensor.get_depth_scale()
+
+    align = rs.align(rs.stream.color)
+
+    video_prof = profile.get_stream(rs.stream.color).as_video_stream_profile()
+    intrinsics = video_prof.get_intrinsics()
+
+    frames = pipeline.wait_for_frames()
+    aligned = align.process(frames)
+
+    color_frame = aligned.get_color_frame()
+    rgb_img = np.asanyarray(color_frame.get_data())
+
+    depth_frame = aligned.get_depth_frame()
+    depth_img = np.asanyarray(depth_frame.get_data()).astype(np.float32)
+    depth_img *= depth_scale
+    
 
     I = {
-        "fx": Intrinsics[0, 0],
-        "fy": Intrinsics[1, 1],
-        "cx": Intrinsics[0, 2],
-        "cy": Intrinsics[1, 2]
+        "fx": intrinsics.fx,
+        "fy": intrinsics.fy,
+        "cx": intrinsics.ppx,
+        "cy": intrinsics.ppy,
     }
 
     print(f"\n\nTESTING OWL")
