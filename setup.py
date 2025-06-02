@@ -1,35 +1,50 @@
-# setup.py
-from setuptools import setup, find_packages
-import io, os
+from setuptools import setup
 
-# read your README for the long description
-here = os.path.abspath(os.path.dirname(__file__))
-with io.open(os.path.join(here, 'README.md'), encoding='utf-8') as f:
-    long_description = f.read()
+package_name = 'vision_pipeline'
 
 setup(
-    name='vision-pipeline',
+    name=package_name,
     version='0.1.0',
-    author='Your Name',
-    author_email='you@example.com',
-    description='Probabilistic 3D vision pipeline',
-    long_description=long_description,
-    long_description_content_type='text/markdown',
-    url='https://github.com/yourusername/VisionPipeline',
-    packages=find_packages(exclude=['tests', '__pycache__']),
-    include_package_data=True,            # pick up config.json + figures
+    packages=[package_name],
     install_requires=[
-        'numpy',
-        'torch',
-        'torchvision',
-        'opencv-python',
-        'open3d',
-        # …any other deps…
+        # Non-ROS PyPI dependencies (if any), e.g.:
+        # 'numpy', 'opencv-python', 'torch'
     ],
-    classifiers=[
-        'Programming Language :: Python :: 3.10',
-        'License :: OSI Approved :: MIT License',
-        'Operating System :: OS Independent',
+    zip_safe=True,
+    author='Max Conway',
+    author_email='max@your_email.com',
+    description='ROS2 Python vision pipeline nodes + launch files + RosWrappers',
+    license='Apache-2.0',
+    tests_require=['pytest'],
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 1) Entry points for any console scripts you want from your .py files
+    # ──────────────────────────────────────────────────────────────────────────
+    entry_points={
+        'console_scripts': [
+            # Existing nodes:
+            'publisher_main       = vision_pipeline.PublisherMain:main',
+            'robot_main           = vision_pipeline.RobotMain:main',
+            'vision_pipeline_node = vision_pipeline.VisionPipeline:main',
+
+            # Expose RosWrappers functions. 
+            # Replace `main_wrapper` below with the actual function name(s) you have.
+            # e.g. if RosWrappers.py has def main_wrapper(args=None): …, then:
+            'ros_wrappers_main    = vision_pipeline.RosWrappers:main_wrapper',
+            # If you have additional functions in RosWrappers, add them similarly:
+            # 'another_wrapper   = vision_pipeline.RosWrappers:another_function',
+        ],
+    },
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 2) Data files: make sure the launch/ folder is installed under share/vision_pipeline/launch
+    # ──────────────────────────────────────────────────────────────────────────
+    data_files=[
+        # Install any launch files so that "ros2 launch vision_pipeline <file>" works:
+        ('share/vision_pipeline/launch', [
+            'launch/realsense_cameras.launch.py',
+        ]),
+        # If you have other non-Python files (e.g. params/, configs/) you can install them here:
+        # ('share/vision_pipeline/config', ['vision_pipeline/config.json']),
     ],
-    python_requires='>=3.8',
 )
