@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import numpy as np
 import cv2
-#import pyrealsense2 as rs
 
 from dataclasses import dataclass
 from cyclonedds.idl import IdlStruct
+import pyrealsense2 as rs
 
 import cyclonedds.idl.types as types
 from typing import List
@@ -33,6 +33,7 @@ class CameraSensorData(IdlStruct, typename="CameraSensorData"):
 
 class RealSenseCameraPublisher:
     def __init__(self, channel_name, width=None, height=None, fps=60, serial_number: str = None, InitChannelFactory = True):
+
         if InitChannelFactory:
             ChannelFactoryInitialize()
         # Create and configure pipeline

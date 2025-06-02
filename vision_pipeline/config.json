@@ -17,7 +17,7 @@
 
     "iou_3d_matching": 0.25,
     "belief_threshold": 0.25,
-    "test_querys":["drill", "wrench", "screw driver"],
+    "test_querys":["coke can", "drill", "wrench", "screw driver"],
     "false_negative_rate":0.10,
     "sigmoid_gain": 5
 }
