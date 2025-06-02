@@ -34,6 +34,7 @@ class VisionPipe:
             "pcds": List of point clouds,
             "rgb_masks": List of lists of RGB masks,
             "depth_masks": List of lists of depth masks
+            "names": List of strings for object names
         }
         """
         self.owv2 = OWLv2()
@@ -48,18 +49,24 @@ class VisionPipe:
             Initializes the Open3D GUI application in a separate thread.
             This is necessary to avoid blocking the main thread with the GUI.
             """
+            #o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
+
             self.app.initialize()
             self.vis = o3d.visualization.O3DVisualizer("VisionPipe GUI", 1024, 768)
             self.vis.show_settings = True
             self.app.add_window(self.vis)
-            self.app.run()
+            while self.app.run_one_tick():
+                time.sleep(0.02)
+            self.vis.close()
             self.app.quit()
 
         self.gui_thread = threading.Thread(target=gui_thread, args=(self,))
         self.gui_thread.start()
         self.last_pose = [0.0]*6  # Initialize last pose to zero
+        self.camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2, origin=[0, 0, 0])
         while self.vis is None:
             time.sleep(0.1)
+        self.vis.add_geometry("CameraFrame", self.camera_frame)
 
     def update(self, rgb_img, depth_img, querries, I, obs_pose, debug = False):
         """
@@ -110,6 +117,7 @@ class VisionPipe:
             "pcds": List of point clouds,
             "rgb_masks": List of lists of RGB masks,
             "depth_masks": List of lists of depth masks
+            "names": List of strings for object names
         }
         predictions3d[object_name] = {
             "boxes": List of 3D bounding boxes,
@@ -126,6 +134,13 @@ class VisionPipe:
                 self.tracked_objects[object] = predictions_3d[object]
                 self.tracked_objects[object]["rgb_masks"] = [[rgb_mask] for rgb_mask in predictions_3d[object]["rgb_masks"]]
                 self.tracked_objects[object]["depth_masks"] = [[depth_mask] for depth_mask in predictions_3d[object]["depth_masks"]]
+                self.tracked_objects[object]["names"] = [f"{object}_{i}" for i in range(len(predictions_3d[object]["boxes"]))]
+
+                for i, (box, pcd, name) in enumerate(zip(self.tracked_objects[object]["boxes"], self.tracked_objects[object]["pcds"], self.tracked_objects[object]["names"])):
+                    self.vis.add_geometry(f"box_{name}", box)
+                    self.vis.add_geometry(f"pcd_{name}", pcd)
+                    
+
             else:
                 #keep track of which objects were updated, if an object was not updated but should have been, we will update its belief score
                 updated = [False for i in range(len(self.tracked_objects[object]["boxes"]))]
@@ -152,6 +167,13 @@ class VisionPipe:
 
                         # store it back
                         self.tracked_objects[object]['scores'] = updated_scores
+                        previous_names = self.tracked_objects[object]["names"][-1]
+                        next_idx = int(previous_names.split("_")[-1]) + 1
+                        self.tracked_objects[object]["names"].append(f"{object}_{next_idx}")
+
+                        name = self.tracked_objects[object]["names"][-1]
+                        self.vis.add_geometry(f"box_{name}", candidate_box)
+                        self.vis.add_geometry(f"pcd_{name}", candidate_pcd)
                     # If the max IoU is above the threshold, update the existing object
                     else:
                         match_idx = ious.index(max_iou)
@@ -204,6 +226,10 @@ class VisionPipe:
             prediction["rgb_masks"] = [prediction["rgb_masks"][i] for i in range(len(mask)) if mask[i]]
             prediction["depth_masks"] = [prediction["depth_masks"][i] for i in range(len(mask)) if mask[i]]
             prediction["scores"] = prediction["scores"][mask]
+            [self.vis.remove_geometry(f"box_{prediction['names'][i]}") for i in range(len(mask)) if mask[i]]
+            [self.vis.remove_geometry(f"pcd_{prediction['names'][i]}") for i in range(len(mask)) if mask[i]]
+
+            prediction["names"] = [prediction["names"][i] for i in range(len(mask)) if mask[i]]
 
     def query(self, query):
         """
@@ -258,32 +284,26 @@ class VisionPipe:
 
     def update_gui(self):
         self.vis.clear_3d_labels()
-        self.vis.scene.clear_geometry()
-        camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
-            size=0.2,
-            origin=[0, 0, 0]
-        )
-        camera_frame.transform(pose_to_matrix(self.last_pose))
-        self.vis.add_geometry("CameraFrame", camera_frame)
-
-
+        self.camera_frame.transform(pose_to_matrix(self.last_pose))
         for query in self.tracked_objects.keys():
-            for idx, pc in enumerate(self.tracked_objects[query]["pcds"]):
-                self.vis.add_geometry(f"pcd_{query}_{idx}", pc)
             for idx, (box, score) in enumerate(zip(self.tracked_objects[query]["boxes"], self.tracked_objects[query]["scores"])):
-                self.vis.add_geometry(f"box_{query}_{idx}", box)
                 center = box.get_center() if hasattr(box, "get_center") else np.asarray(box.vertices).mean(axis=0)
                 self.vis.add_3d_label(center, f"{query}: {float(score):.3f}")
 
 
 def test_VP(sub, display2d=False):
     vp = VisionPipe()
-    for i in range(5):
+    i =0
+    while True:
         rgb_img, depth_img, Intrinsics, Extrinsics = None, None, None, None
         while rgb_img is None or depth_img is None or Intrinsics is None or Extrinsics is None:
-            print("Waiting for RGB-D data...")
-            rgb_img, depth_img, Intrinsics, Extrinsics = sub.read(display=False)
-            #print(f"Received RGB-D data: {type(rgb_img)}, {type(depth_img)}, {type(Intrinsics)}, {type(Extrinsics)}")
+            try:
+                print("Waiting for RGB-D data...")
+                rgb_img, depth_img, Intrinsics, Extrinsics = sub.read(display=False)
+                #print(f"Received RGB-D data: {type(rgb_img)}, {type(depth_img)}, {type(Intrinsics)}, {type(Extrinsics)}")
+            except KeyboardInterrupt:
+                print("KeyboardInterrupt received, exiting...")
+                exit(0)
 
         I = {
             "fx": Intrinsics[0, 0],
@@ -294,6 +314,7 @@ def test_VP(sub, display2d=False):
             "height":rgb_img.shape[0],
         }
         print(f"Frame {i}:")
+        #print(f"   {rgb_img.shape=}, {depth_img.shape=}, {I=}")
         predictions = vp.update(rgb_img, depth_img, config["test_querys"], I, [0.0]*6)
         if display2d:
             vp.vis_belief2D(query=config["test_querys"][0], blocking=True, prefix=f"T={i}", save_dir=os.path.join(fig_dir, "VP"))
@@ -302,7 +323,7 @@ def test_VP(sub, display2d=False):
             print(f"{object=}")
             print(f"   {len(prediction['boxes'])=}, {len(prediction['pcds'])=}, {prediction['scores'].shape=}")
         print(f"\n\n")
-
+        i+=1
     if display2d:
         vp.vis_belief2D(query=config["test_querys"][0], blocking=True, prefix= "Final",save_dir=os.path.join(fig_dir, "VP"))
 
@@ -311,18 +332,21 @@ def test_VP(sub, display2d=False):
 if __name__ == "__main__":
     from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
-    ChannelFactoryInitialize(networkInterface= "enx00e04c681314")
+    ChannelFactoryInitialize(networkInterface= "lo")
 
     sub = RealSenseCameraSubscriber(
-        channel_name="realsense/Head",
+        channel_name="realsense/camera",
         InitChannelFactory=False
     )
     rgb_img, depth_img, Intrinsics, Extrinsics = None, None, None, None
     while rgb_img is None or depth_img is None or Intrinsics is None or Extrinsics is None:
-        print("Waiting for RGB-D data...")
-        rgb_img, depth_img, Intrinsics, Extrinsics = sub.read(display=False)
-        #print(f"Received RGB-D data: {type(rgb_img)}, {type(depth_img)}, {type(Intrinsics)}, {type(Extrinsics)}")
-
+        try:
+            print("Waiting for RGB-D data...")
+            rgb_img, depth_img, Intrinsics, Extrinsics = sub.read(display=False)
+            #print(f"Received RGB-D data: {type(rgb_img)}, {type(depth_img)}, {type(Intrinsics)}, {type(Extrinsics)}")
+        except KeyboardInterrupt:
+            print("KeyboardInterrupt received, exiting...")
+            exit(0)
     I = {
         "fx": Intrinsics[0, 0],
         "fy": Intrinsics[1, 1],

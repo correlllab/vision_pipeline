@@ -213,13 +213,17 @@ class SAM2_PC:
         sam_logits = None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=UserWarning)
-            sam_mask, sam_scores, sam_logits = self.sam_predictor.predict(box=bbox)
-        sam_mask = np.all(sam_mask, axis=1)
+            original_sam_mask, sam_scores, sam_logits = self.sam_predictor.predict(box=bbox)
+        if original_sam_mask.ndim == 3:
+            # single mask → add batch axis
+            original_sam_mask = original_sam_mask[np.newaxis, ...]
+        sam_mask = np.all(original_sam_mask, axis=1)
         if debug:
             print(f"{sam_mask.shape=}")
 
 
         #Apply mask to the depth and rgb images
+        #print(f"{original_sam_mask.shape=}, {sam_mask.shape=}, {rgb_img.shape=}, {depth_img.shape=}")
         masked_depth = depth_img[None, ...] * sam_mask
         masked_rgb = rgb_img[None, ...] * sam_mask[..., None]
         #print(f"\n\n{masked_depth.shape=}, {masked_rgb.shape=}")
