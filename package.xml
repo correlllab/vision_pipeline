@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>vision_pipeline</name>
+  <version>0.1.0</version>
+  <description>
+    ROS 2 Python vision pipeline nodes (PublisherMain, SubscriberMain, RobotMain, VisionPipeline, etc.)
+  </description>
+
+  <!-- Replace with a valid email address -->
+  <maintainer email="max@example.com">Max Conway</maintainer>
+
+  <license>Apache-2.0</license>
+
+  <!-- Build tool -->
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- Runtime dependencies -->
+  <exec_depend>rclpy</exec_depend>
+  <!-- (add other <exec_depend> lines as needed) -->
+</package>
