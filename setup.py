@@ -1,30 +1,32 @@
-from setuptools import setup
+#!/usr/bin/env python3
+import os
+from setuptools import find_packages, setup
 
 package_name = 'vision_pipeline'
 
 setup(
     name=package_name,
-    version='0.1.0',
-    packages=[package_name],  # installs the "vision_pipeline" folder
+    version='0.0.1',
+    packages=find_packages(exclude=['test']),
     data_files=[
-        # Include package.xml so that ros2 can discover this as a ROS package
-        ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
+        ('share/ament_index/resource_index/packages',
+            ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        # If you have config.json or other data:
-        (f'share/{package_name}/config', ['vision_pipeline/config.json']),
+        # include configuration file
+        ('share/' + package_name, [os.path.join('vision_pipeline', 'config.json')]),
     ],
-    install_requires=[
-        'torch>=2.0.0',           # your minimum Torch version
-        'opencv-python>=4.5.0',   # ensure OpenCV-Python is installed
-        # add any other pip packages here (e.g. numpy is usually pulled in by OpenCV or Torch)
-    ],
+    install_requires=['setuptools'],
+    zip_safe=True,
+    maintainer='todo',
+    maintainer_email='todo@gmail.com',
+    description='Vision Pipeline ROS2 package',
+    license='MIT',
+    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            # If you have Python nodes, e.g.:
-            'robot_main = vision_pipeline.RobotMain:main',
-            'realsense_interface = vision_pipeline.RealsenseInterface:main',
-            # …add more node scripts as needed
+            'camera = vision_pipeline.RosWrappers:TestSubscriber',
+            'foundationmodels = vision_pipeline.RosWrappers:TestFoundationModels',
+            'visionpipeline = vision_pipeline.RosWrappers:TestVisionPipe',
         ],
     },
-    zip_safe=True,
 )
