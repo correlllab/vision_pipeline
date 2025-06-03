@@ -315,6 +315,7 @@ def test_VP(display2d=False):
 
         color_frame = aligned.get_color_frame()
         rgb_img = np.asanyarray(color_frame.get_data())
+        
 
         depth_frame = aligned.get_depth_frame()
         depth_img = np.asanyarray(depth_frame.get_data()).astype(np.float32)

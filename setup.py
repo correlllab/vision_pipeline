@@ -26,6 +26,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'camera = vision_pipeline.RosWrappers:TestSubscriber',
             'foundationmodels = vision_pipeline.RosWrappers:TestFoundationModels',
             'visionpipeline = vision_pipeline.RosWrappers:TestVisionPipe',
         ],

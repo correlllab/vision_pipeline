@@ -254,8 +254,8 @@ def nms(boxes, scores, iou_threshold, extra_data_lists=None, three_d=False):
         discard_idx = np.where(ious >= iou_threshold)[0]
 
         # sum up the *scores* of those to-be-discarded
-        discarded_scores = sum(items[i][0] for i in discard_idx)
-        curr_score += discarded_scores
+        discarded_scores = sum(items[i][0] for i in discard_idx)/ len(discard_idx) if discard_idx.size > 0 else 0.0
+        curr_score += discarded_scores / 2
 
         # rebuild items, skipping the discarded indices
         items = [item for i, item in enumerate(items) if i not in discard_idx]
