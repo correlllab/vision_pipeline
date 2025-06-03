@@ -25,6 +25,12 @@ def generate_launch_description():
             'align_depth.enable': 'true',
             'enable_rgbd': "true",
             "enable_sync": "true",
+            'color_width':      '640',
+            'color_height':     '480',
+            'color_fps':        '15',
+            'depth_width':      '640',
+            'depth_height':     '480',
+            'depth_fps':        '15',
 
 
         }.items(),
@@ -43,6 +49,12 @@ def generate_launch_description():
             'align_depth.enable': 'true',
             'enable_rgbd': "true",
             "enable_sync": "true",
+            'color_width':      '640',
+            'color_height':     '480',
+            'color_fps':        '15',
+            'depth_width':      '640',
+            'depth_height':     '480',
+            'depth_fps':        '15',
 
         }.items(),
     )

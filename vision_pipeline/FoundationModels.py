@@ -415,10 +415,14 @@ if __name__ == "__main__":
 
     color_frame = aligned.get_color_frame()
     rgb_img = np.asanyarray(color_frame.get_data())
+    rgb_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2RGB)
 
     depth_frame = aligned.get_depth_frame()
     depth_img = np.asanyarray(depth_frame.get_data()).astype(np.float32)
     depth_img *= depth_scale
+    cv2.imshow("RGB", rgb_img)
+    cv2.imshow("Depth", depth_img)
+    cv2.waitKey(0)
     
 
     I = {
