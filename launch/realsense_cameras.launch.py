@@ -7,6 +7,12 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_directory
 
 
+Width = '640'
+Height = '480'
+fps = '30'
+pointcloud_enable = 'true'
+
+
 def generate_launch_description():
     # Path to the upstream rs_launch.py
     pkg_share = get_package_share_directory('realsense2_camera')
@@ -21,16 +27,16 @@ def generate_launch_description():
             'serial_no': '_250122072330',
             'enable_color': 'true',
             'enable_depth': 'true',
-            'pointcloud.enable': 'true',
+            'pointcloud.enable': pointcloud_enable,
             'align_depth.enable': 'true',
             'enable_rgbd': "true",
             "enable_sync": "true",
-            #'color_width':      '640',
-            #'color_height':     '480',
-            #'color_fps':        '15',
-            #'depth_width':      '640',
-            #'depth_height':     '480',
-            #'depth_fps':        '15',
+            'color_width':      Width,
+            'color_height':     Height,
+            'color_fps':        fps,
+            'depth_width':      Width,
+            'depth_height':     Height,
+            'depth_fps':        fps,
 
 
         }.items(),
@@ -45,17 +51,40 @@ def generate_launch_description():
             'serial_no': '_838212072778',
             'enable_color': 'true',
             'enable_depth': 'true',
-            'pointcloud.enable': 'true',
+            'pointcloud.enable': pointcloud_enable,
             'align_depth.enable': 'true',
             'enable_rgbd': "true",
             "enable_sync": "true",
-            #'color_width':      '640',
-            #'color_height':     '480',
-            #'color_fps':        '15',
-            #'depth_width':      '640',
-            #'depth_height':     '480',
-            #'depth_fps':        '15',
+            'color_width':      Width,
+            'color_height':     Height,
+            'color_fps':        fps,
+            'depth_width':      Width,
+            'depth_height':     Height,
+            'depth_fps':        fps,
 
+        }.items(),
+    )
+
+
+    # Launch third camera: right_hand
+    right_cam = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(rs_launch_file),
+        launch_arguments={
+            'camera_name': 'right_hand',
+            'camera_namespace': 'realsense',
+            'serial_no': '_926522071700',
+            'enable_color': 'true',
+            'enable_depth': 'true',
+            'pointcloud.enable': pointcloud_enable,
+            'align_depth.enable': 'true',
+            'enable_rgbd': "true",
+            "enable_sync": "true",
+            'color_width':      Width,
+            'color_height':     Height,
+            'color_fps':        fps,
+            'depth_width':      Width,
+            'depth_height':     Height,
+            'depth_fps':        fps,
         }.items(),
     )
 
