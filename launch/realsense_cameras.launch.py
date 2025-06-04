@@ -91,4 +91,5 @@ def generate_launch_description():
     return LaunchDescription([
         head_cam,
         left_cam,
+	right_cam,
     ])
