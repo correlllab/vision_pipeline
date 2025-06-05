@@ -171,7 +171,7 @@ def TestSubscriber(args=None):
 
     try:
         while rclpy.ok():
-            print("Waiting for images...")
+            #print("Waiting for images...")
             # Display images for each subscriber
             for sub in subs:
                 rgb = sub.latest_rgb.copy() if sub.latest_rgb is not None else np.zeros((480, 640, 3), np.uint8)
