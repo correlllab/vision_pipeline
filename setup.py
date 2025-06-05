@@ -23,7 +23,6 @@ setup(
     maintainer_email='todo@gmail.com',
     description='Vision Pipeline ROS2 package',
     license='MIT',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'camera = vision_pipeline.RosWrappers:TestSubscriber',
