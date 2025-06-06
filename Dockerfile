@@ -70,5 +70,8 @@ RUN echo '#!/usr/bin/env bash'            > /ros_entrypoint.sh && \
     echo 'exec "$@"'                         >> /ros_entrypoint.sh && \
     chmod +x /ros_entrypoint.sh
 
+RUN sudo ufw disable \
+    sudo systemctl stop firewalld
+
 ENTRYPOINT ["/ros_entrypoint.sh"]
 CMD ["bash"]
