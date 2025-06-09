@@ -2,6 +2,7 @@
 xhost +local:root
 
 docker run --rm -it \
+  -v ~/vp_ws/src/vision_pipeline:/ros2_ws/src/vision_pipeline \
   --gpus all \
   --shm-size=1g \
   --network host \
@@ -9,7 +10,7 @@ docker run --rm -it \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -v /etc/localtime:/etc/localtime:ro \
   -v /etc/timezone:/etc/timezone:ro \
-  vision_pipeline:humble \
+  vision-pipeline:latest \
   "$@"
 
 

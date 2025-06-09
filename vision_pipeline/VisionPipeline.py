@@ -1,6 +1,5 @@
 import open3d as o3d
 import torch
-from open3d.visualization import gui, rendering
 import numpy as np
 import json
 import os
@@ -41,32 +40,6 @@ class VisionPipe:
         self.tracked_objects = {}
         self.update_count = 0
 
-        self.app = gui.Application.instance
-        self.vis = None
-        def gui_thread(self):
-            """
-            Initializes the Open3D GUI application in a separate thread.
-            This is necessary to avoid blocking the main thread with the GUI.
-            """
-            #o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
-
-            self.app.initialize()
-            self.vis = o3d.visualization.O3DVisualizer("VisionPipe GUI", 1024, 768)
-            self.vis.show_settings = True
-            self.app.add_window(self.vis)
-            while self.app.run_one_tick():
-                time.sleep(0.02)
-            self.vis.close()
-            self.app.quit()
-
-        self.gui_thread = threading.Thread(target=gui_thread, args=(self,))
-        self.gui_thread.start()
-        self.last_pose = [0.0]*6  # Initialize last pose to zero
-        self.camera_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2, origin=[0, 0, 0])
-        while self.vis is None:
-            time.sleep(0.1)
-        self.vis.add_geometry("CameraFrame", self.camera_frame)
-
     def update(self, rgb_img, depth_img, querries, I, obs_pose, debug = False):
         """
         Generates a set of 3D predictions and then updates the tracked objects based on the new observations.
@@ -104,7 +77,6 @@ class VisionPipe:
         self.update_tracked_objects(predictions_3d, obs_pose, I, debug=debug)
         self.update_count += 1
 
-        self.update_gui()
         return self.tracked_objects
 
     def update_tracked_objects(self, predictions_3d, obs_pose, I, debug = False):
@@ -134,12 +106,7 @@ class VisionPipe:
                 self.tracked_objects[object]["rgb_masks"] = [[rgb_mask] for rgb_mask in predictions_3d[object]["rgb_masks"]]
                 self.tracked_objects[object]["depth_masks"] = [[depth_mask] for depth_mask in predictions_3d[object]["depth_masks"]]
                 self.tracked_objects[object]["names"] = [f"{object}_{i}" for i in range(len(predictions_3d[object]["boxes"]))]
-
-                for i, (box, pcd, name) in enumerate(zip(self.tracked_objects[object]["boxes"], self.tracked_objects[object]["pcds"], self.tracked_objects[object]["names"])):
-                    self.vis.add_geometry(f"box_{name}", box)
-                    self.vis.add_geometry(f"pcd_{name}", pcd)
                     
-
             else:
                 #keep track of which objects were updated, if an object was not updated but should have been, we will update its belief score
                 updated = [False for i in range(len(self.tracked_objects[object]["boxes"]))]
@@ -170,9 +137,7 @@ class VisionPipe:
                         next_idx = int(previous_names.split("_")[-1]) + 1
                         self.tracked_objects[object]["names"].append(f"{object}_{next_idx}")
 
-                        name = self.tracked_objects[object]["names"][-1]
-                        self.vis.add_geometry(f"box_{name}", candidate_box)
-                        self.vis.add_geometry(f"pcd_{name}", candidate_pcd)
+
                     # If the max IoU is above the threshold, update the existing object
                     else:
                         match_idx = ious.index(max_iou)
@@ -225,8 +190,6 @@ class VisionPipe:
             prediction["rgb_masks"] = [prediction["rgb_masks"][i] for i in range(len(mask)) if mask[i]]
             prediction["depth_masks"] = [prediction["depth_masks"][i] for i in range(len(mask)) if mask[i]]
             prediction["scores"] = prediction["scores"][mask]
-            [self.vis.remove_geometry(f"box_{prediction['names'][i]}") for i in range(len(mask)) if mask[i]]
-            [self.vis.remove_geometry(f"pcd_{prediction['names'][i]}") for i in range(len(mask)) if mask[i]]
 
             prediction["names"] = [prediction["names"][i] for i in range(len(mask)) if mask[i]]
 
@@ -249,7 +212,6 @@ class VisionPipe:
         if query not in self.tracked_objects:
             raise ValueError(f"Object {query} not found in tracked objects.")
         bundles = [(self.tracked_objects[query]["scores"][i], self.tracked_objects[query]["rgb_masks"][i]) for i in range(len(self.tracked_objects[query]["scores"]))]
-        bundles = sorted(bundles, key=lambda x: x[0], reverse=True)
 
         scores = [bundle[0] for bundle in bundles]
         # Create a bar plot of the scores
@@ -281,16 +243,8 @@ class VisionPipe:
         plt.show(block=blocking)
         #plt.pause(0.1)
 
-    def update_gui(self):
-        self.vis.clear_3d_labels()
-        self.camera_frame.transform(pose_to_matrix(self.last_pose))
-        for query in self.tracked_objects.keys():
-            for idx, (box, score) in enumerate(zip(self.tracked_objects[query]["boxes"], self.tracked_objects[query]["scores"])):
-                center = box.get_center() if hasattr(box, "get_center") else np.asarray(box.vertices).mean(axis=0)
-                self.vis.add_3d_label(center, f"{query}: {float(score):.3f}")
 
-
-def test_VP(display2d=False):
+def test_VP(display2d=True):
     import pyrealsense2 as rs
 
     pipeline = rs.pipeline()
@@ -308,8 +262,7 @@ def test_VP(display2d=False):
     
 
     vp = VisionPipe()
-    i =0
-    while True:
+    for i in range(10):
         frames = pipeline.wait_for_frames()
         aligned = align.process(frames)
 
@@ -341,7 +294,6 @@ def test_VP(display2d=False):
             print(f"{object=}")
             print(f"   {len(prediction['boxes'])=}, {len(prediction['pcds'])=}, {prediction['scores'].shape=}")
         print(f"\n\n")
-        i+=1
     if display2d:
         vp.vis_belief2D(query=config["test_querys"][0], blocking=True, prefix= "Final",save_dir=os.path.join(fig_dir, "VP"))
 
