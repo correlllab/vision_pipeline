@@ -344,9 +344,13 @@ class ROS_VisionPipe(VisionPipe, Node):
         marker_array = MarkerArray()
         id = 0
         for box, score in zip(self.tracked_objects[query]["boxes"], self.tracked_objects[query]["scores"]):
-            
+            #print(f"Processing box for query: {query}, score: {score}")
+            #input(f"{box=}, {score=}")
+            score = score.item()
             r = 1-score
             g = score
+            #print(type(r), type(g))
+            #input(f"{r=}, {g=}")
             
             box_marker = Marker()
             box_marker.header.frame_id = "head_link"   # or your preferred frame
@@ -358,7 +362,7 @@ class ROS_VisionPipe(VisionPipe, Node):
             box_marker.scale.x = 0.01            # Line width in meters
             box_marker.color.r = r*0.5
             box_marker.color.g = g*0.5
-            box_marker.color.b = 0
+            box_marker.color.b = 0.0
             box_marker.color.a = 0.5
             box_marker.id = id
             id += 1
@@ -387,8 +391,8 @@ class ROS_VisionPipe(VisionPipe, Node):
             score_marker.scale.z = 0.05  # Font size
             score_marker.color.r = r
             score_marker.color.g = g
-            score_marker.color.b = 0
-            score_marker.color.a = 1
+            score_marker.color.b = 0.0
+            score_marker.color.a = 1.0
             score_marker.text = f"{query.replace(' ', '')}:{score:.5f}"
             #print(f"{score_marker.text=}")
             marker_array.markers.append(score_marker)
