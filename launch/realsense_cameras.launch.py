@@ -14,6 +14,7 @@ def generate_launch_description():
         DeclareLaunchArgument('height', default_value='240'),
         DeclareLaunchArgument('fps', default_value='15'),
         DeclareLaunchArgument('enable_pointcloud', default_value='false'),
+        DeclareLaunchArgument('enable_rgbd', default_value='false'),
     ]
 
     # Launch configurations
@@ -21,6 +22,7 @@ def generate_launch_description():
     height = LaunchConfiguration('height')
     fps = LaunchConfiguration('fps')
     pointcloud = LaunchConfiguration('enable_pointcloud')
+    rgbd = LaunchConfiguration('enable_rgbd')
 
     pkg_share = get_package_share_directory('realsense2_camera')
     rs_launch_file = os.path.join(pkg_share, 'launch', 'rs_launch.py')
@@ -36,7 +38,7 @@ def generate_launch_description():
                 'enable_depth': 'true',
                 'pointcloud.enable': pointcloud,
                 'align_depth.enable': 'true',
-                'enable_rgbd': 'true',
+                'enable_rgbd': rgbd,
                 'enable_sync': 'true',
                 'color_width': width,
                 'color_height': height,

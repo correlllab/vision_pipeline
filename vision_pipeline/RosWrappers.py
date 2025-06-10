@@ -172,6 +172,9 @@ def TestFoundationModels(args=None):
     SAM = SAM2_PC()
     while rclpy.ok():
         rgb_img, depth_img, info = sub.get_data()
+        if rgb_img is None or depth_img is None or info is None:
+            print("Waiting for images...")
+            continue
         print(f"{info=}")
         intrinsics = {
             "fx": info.k[0],
@@ -393,7 +396,7 @@ class ROS_VisionPipe(VisionPipe, Node):
             score_marker.color.g = g
             score_marker.color.b = 0.0
             score_marker.color.a = 1.0
-            score_marker.text = f"{query.replace(' ', '')}:{score:.5f}"
+            score_marker.text = f"{query.replace(' ', '')}:{score:.2f}"
             #print(f"{score_marker.text=}")
             marker_array.markers.append(score_marker)
         return marker_array
@@ -403,7 +406,7 @@ class ROS_VisionPipe(VisionPipe, Node):
         rgb_img, depth_img, info = self.sub.get_data()
         pose = [0,0,0,0,0,0]
         if rgb_img is None or depth_img is None or info is None:
-            #print("No image received yet.")
+            print("No image received yet.")
             return False
         if len(self.track_strings) == 0:
             print("No track strings provided.")
@@ -433,11 +436,15 @@ def TestVisionPipe(args=None):
     VP.add_track_string(["wrench", "screwdriver"])
     success_counter = 0
     while rclpy.ok():
+        #print("looped")
         success = VP.update()
+        print(f"updated with success={success!=False}")
         success_counter += 1 if success != False else 0
         if success:
-            print(f"Success {success_counter} with {len(VP.tracked_objects)} tracked objects")
+            #print(f"Success {success_counter} with {len(VP.tracked_objects)} tracked objects")
             #VP.vis_belief2D(query=f"{VP.track_strings[-1]}", blocking=False, prefix = f"T={success_counter} ")
+            pass
+        time.sleep(0.1)
 
 
     for object, predictions in VP.tracked_objects.items():

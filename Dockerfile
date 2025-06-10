@@ -9,6 +9,8 @@ RUN rm /etc/apt/sources.list.d/ros2-latest.list || true
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       curl gnupg2 lsb-release \
+      iputils-ping \
+      net-tools \
       python3-pip && \
     rm -rf /var/lib/apt/lists/*
 
@@ -55,7 +57,16 @@ WORKDIR /ros2_ws
 
 # Set CycloneDDS as RMW implementation
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-ENV CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"wlp5s0\" priority=\"default\" multicast=\"default\"/></Interfaces></General></Domain></CycloneDDS>"
+ENV CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"enp4s0\" priority=\"default\" multicast=\"default\"/></Interfaces></General></Domain></CycloneDDS>"
+
+
+RUN python3 -c "from sam2.sam2_image_predictor import SAM2ImagePredictor;\
+from transformers import OwlViTProcessor, OwlViTForObjectDetection;\
+#sam_predictor = SAM2ImagePredictor.from_pretrained('facebook/sam2-hiera-large');\
+owl_processor = OwlViTProcessor.from_pretrained('google/owlvit-base-patch32');\
+owl_model = OwlViTForObjectDetection.from_pretrained('google/owlvit-base-patch32');\
+print('Download models finished.');\
+"
 
 # Entry point script to source and conditionally build
 RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \
