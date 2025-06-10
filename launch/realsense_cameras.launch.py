@@ -39,13 +39,7 @@ def generate_launch_description():
                 'pointcloud.enable': pointcloud,
                 'align_depth.enable': 'true',
                 'enable_rgbd': rgbd,
-                'enable_sync': 'true',
-                'color.width': width,
-                'color.height': height,
-                'color.fps': fps,
-                'depth.width': width,
-                'depth.height': height,
-                'depth.fps': fps,
+                'enable_sync': 'true'
             }.items()
         )
 
