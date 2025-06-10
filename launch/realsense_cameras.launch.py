@@ -40,12 +40,12 @@ def generate_launch_description():
                 'align_depth.enable': 'true',
                 'enable_rgbd': rgbd,
                 'enable_sync': 'true',
-                'color_width': width,
-                'color_height': height,
-                'color_fps': fps,
-                'depth_width': width,
-                'depth_height': height,
-                'depth_fps': fps,
+                'color.width': width,
+                'color.height': height,
+                'color.fps': fps,
+                'depth.width': width,
+                'depth.height': height,
+                'depth.fps': fps,
             }.items()
         )
 

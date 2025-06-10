@@ -94,22 +94,25 @@ class RealSenseSubscriber(Node):
     def _rgb_callback(self, msg: Image):
         try:
             rgb_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            with self._lock:
+                self.latest_rgb = rgb_img
+            print(f"{self.camera_name} Received rgb image with shape: {rgb_img.shape}")
+            
         except Exception as e:
-            self.get_logger().error(f"Failed to convert RGB image: {e}")
-            rgb_img = np.zeros((480, 640, 3), dtype=np.uint8)
-        with self._lock:
-            self.latest_rgb = rgb_img
+            pass
+        
 
     def _depth_callback(self, msg: Image):
         try:
             depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
             if depth.dtype == np.uint16:
                 depth = depth.astype(np.float32) / 1000.0
+            with self._lock:
+                self.latest_depth = depth
+            print(f"{self.camera_name} Received depth image with shape: {depth.shape}")
         except Exception as e:
-            self.get_logger().error(f"Failed to convert depth image: {e}")
-            depth = np.zeros((480, 640), dtype=np.float32)
-        with self._lock:
-            self.latest_depth = depth
+            pass
+        
 
     def _info_callback(self, msg: CameraInfo):
         with self._lock:
@@ -406,10 +409,10 @@ class ROS_VisionPipe(VisionPipe, Node):
         rgb_img, depth_img, info = self.sub.get_data()
         pose = [0,0,0,0,0,0]
         if rgb_img is None or depth_img is None or info is None:
-            print("No image received yet.")
+            #print("No image received yet.")
             return False
         if len(self.track_strings) == 0:
-            print("No track strings provided.")
+            #print("No track strings provided.")
             return False
         #print(f"\n\n{info=}")
         intrinsics = {
@@ -438,13 +441,12 @@ def TestVisionPipe(args=None):
     while rclpy.ok():
         #print("looped")
         success = VP.update()
-        print(f"updated with success={success!=False}")
         success_counter += 1 if success != False else 0
         if success:
-            #print(f"Success {success_counter} with {len(VP.tracked_objects)} tracked objects")
+            print(f"Success {success_counter} with {len(VP.tracked_objects)} tracked objects")
             #VP.vis_belief2D(query=f"{VP.track_strings[-1]}", blocking=False, prefix = f"T={success_counter} ")
             pass
-        time.sleep(0.1)
+        time.sleep(1)
 
 
     for object, predictions in VP.tracked_objects.items():
