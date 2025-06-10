@@ -1,2 +1,2 @@
 #!/bin/bash
-docker build -f src/vision_pipeline/Dockerfile -t vision-pipeline:latest .
+docker build -f "$@" -t vision-pipeline:latest .

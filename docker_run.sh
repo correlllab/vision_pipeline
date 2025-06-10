@@ -6,6 +6,7 @@ docker run --rm -it \
   --gpus all \
   --shm-size=1g \
   --network host \
+  --cpus="4" \
   -e DISPLAY="$DISPLAY" \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -v /etc/localtime:/etc/localtime:ro \
