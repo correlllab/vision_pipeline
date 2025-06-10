@@ -96,7 +96,7 @@ class RealSenseSubscriber(Node):
             rgb_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             with self._lock:
                 self.latest_rgb = rgb_img
-            print(f"{self.camera_name} Received rgb image with shape: {rgb_img.shape}")
+            #print(f"{self.camera_name} Received rgb image with shape: {rgb_img.shape}")
             
         except Exception as e:
             pass
@@ -109,7 +109,7 @@ class RealSenseSubscriber(Node):
                 depth = depth.astype(np.float32) / 1000.0
             with self._lock:
                 self.latest_depth = depth
-            print(f"{self.camera_name} Received depth image with shape: {depth.shape}")
+            #print(f"{self.camera_name} Received depth image with shape: {depth.shape}")
         except Exception as e:
             pass
         
