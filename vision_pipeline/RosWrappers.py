@@ -26,7 +26,6 @@ from sensor_msgs_py import point_cloud2
 
 
 from rclpy.time      import Time
-from rclpy.duration  import Duration
 from tf2_ros         import LookupException, ConnectivityException, ExtrapolationException
 
 
@@ -158,7 +157,7 @@ class RealSenseSubscriber(Node):
         if not self.tf_buffer.can_transform(self.target_frame,
                                             source_frame,
                                             stamp,
-                                            Duration(seconds=2)):
+                                            Duration(seconds=0.2)):
             self.get_logger().warn(f"TF not available for {source_frame}->{self.target_frame} at {stamp.to_msg()}")
             return None            # Try again on the next CameraInfo
 
