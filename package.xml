@@ -9,8 +9,14 @@
 
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
-  <depend>realsense2_camera_msgs</depend>
-  <depend>cv_bridge</depend>
+  
+  <build_depend>builtin_interfaces</build_depend>
+  <build_depend>geometry_msgs</build_depend>
+  <build_depend>action_msgs</build_depend>
+
+   <exec_depend>builtin_interfaces</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>action_msgs</exec_depend>
 
 
   <export>
