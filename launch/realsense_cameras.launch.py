@@ -39,7 +39,7 @@ def generate_launch_description():
                 'pointcloud.enable': pointcloud,
                 'align_depth.enable': 'true',
                 'enable_rgbd': rgbd,
-                'enable_sync': 'true'
+                'enable_sync': 'true',
                 "rgb_camera.color_profile":f"{width},{height},{fps}",
             }.items()
         )
