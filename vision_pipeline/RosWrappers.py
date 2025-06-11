@@ -9,7 +9,7 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
 
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo, Image, CompressedImage
 from cv_bridge import CvBridge
 
 from sensor_msgs.msg import PointCloud2, PointField
@@ -33,6 +33,44 @@ if dir_path not in sys.path:
 from VisionPipeline import VisionPipe
 from FoundationModels import OWLv2, SAM2_PC
 
+
+def decode_compressed_depth_image(msg: CompressedImage) -> np.ndarray:
+    """
+    Decodes a ROS2 compressed depth image (format: '16UC1; compressedDepth').
+
+    Args:
+        msg (CompressedImage): CompressedImage ROS message.
+
+    Returns:
+        np.ndarray: Decoded 16-bit depth image as a NumPy array.
+    """
+    # Ensure format is correct
+    if not msg.format.lower().endswith("compresseddepth"):
+        raise ValueError(f"Unsupported format: {msg.format}")
+
+    # The first 12 bytes of the data are the depth image header
+    header_size = 12
+    if len(msg.data) <= header_size:
+        raise ValueError("CompressedImage data too short to contain depth header")
+
+    # Strip the custom header
+    depth_header = msg.data[:header_size]
+    compressed_data = msg.data[header_size:]
+
+    # Optional: parse header (rows, cols, format, etc.) if needed
+    # rows, cols, fmt, comp = struct.unpack('<II2B', depth_header[:10])
+
+    # Decode the remaining PNG data into a 16-bit image
+    np_arr = np.frombuffer(compressed_data, dtype=np.uint8)
+    depth_image = cv2.imdecode(np_arr, cv2.IMREAD_UNCHANGED)
+
+    if depth_image is None:
+        raise ValueError("cv2.imdecode failed on compressed depth image")
+
+    if depth_image.dtype != np.uint16:
+        raise TypeError(f"Expected uint16 image, got {depth_image.dtype}")
+
+    return depth_image
 
 
 class RealSenseSubscriber(Node):
@@ -65,14 +103,14 @@ class RealSenseSubscriber(Node):
 
         # Subscriptions
         self.create_subscription(
-            Image,
-            f"/realsense/{camera_name}/color/image_raw",
+            CompressedImage,
+            f"/realsense/{camera_name}/color/image_raw/compressed",
             self._rgb_callback,
             image_qos,
         )
         self.create_subscription(
-            Image,
-            f"/realsense/{camera_name}/aligned_depth_to_color/image_raw",
+            CompressedImage,
+            f"/realsense/{camera_name}/aligned_depth_to_color/image_raw/compressedDepth",
             self._depth_callback,
             image_qos,
         )
@@ -91,26 +129,31 @@ class RealSenseSubscriber(Node):
         )
         self._spin_thread.start()
 
-    def _rgb_callback(self, msg: Image):
+    def _rgb_callback(self, msg: CompressedImage):
+        #print(f"Received depth image for {self.camera_name}")
         try:
-            rgb_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            rgb_img = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding='bgr8')
             with self._lock:
                 self.latest_rgb = rgb_img
             #print(f"{self.camera_name} Received rgb image with shape: {rgb_img.shape}")
             
         except Exception as e:
+            print(f"Error processing RGB image for {self.camera_name}: {e}")
             pass
         
 
-    def _depth_callback(self, msg: Image):
+    def _depth_callback(self, msg: CompressedImage):
+        #print(f"Received depth image for {self.camera_name}")
+        self.latest_depth = np.zeros((100,100))
         try:
-            depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+            depth = decode_compressed_depth_image(msg)
             if depth.dtype == np.uint16:
                 depth = depth.astype(np.float32) / 1000.0
             with self._lock:
                 self.latest_depth = depth
             #print(f"{self.camera_name} Received depth image with shape: {depth.shape}")
         except Exception as e:
+            print(f"Error processing Depth image for {self.camera_name}: {e}")
             pass
         
 
@@ -141,7 +184,8 @@ class RealSenseSubscriber(Node):
 def TestSubscriber(args=None):
     """Example usage of RealSenseSubscriber."""
     rclpy.init(args=args)
-    cams = ['head', 'left_hand', 'right_hand']
+    print(f"hello world")
+    cams =['head', 'left_hand', 'right_hand'] #['head', 'left_hand', 'right_hand']
     subs = [RealSenseSubscriber(cam) for cam in cams]
 
     # Create OpenCV windows
@@ -409,7 +453,7 @@ class ROS_VisionPipe(VisionPipe, Node):
         rgb_img, depth_img, info = self.sub.get_data()
         pose = [0,0,0,0,0,0]
         if rgb_img is None or depth_img is None or info is None:
-            #print("No image received yet.")
+            print("No image received yet.")
             return False
         if len(self.track_strings) == 0:
             #print("No track strings provided.")
