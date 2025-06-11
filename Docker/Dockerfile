@@ -53,6 +53,7 @@ WORKDIR /opt/sam2
 RUN git clone https://github.com/facebookresearch/sam2.git . && \
     pip3 install --no-cache-dir -e .
 WORKDIR /ros2_ws
+COPY ./src/custom_ros_messages /ros2_ws/src/custom_ros_messages
 
 
 # Set CycloneDDS as RMW implementation
