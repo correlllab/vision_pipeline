@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import cv2
 import open3d as o3d
 def get_points_and_colors(depths, rgbs, fx, fy, cx, cy):
     """
@@ -174,6 +175,59 @@ def matrix_to_pose(T: np.ndarray) -> np.ndarray:
     yaw  = np.arctan2(R[1, 0], R[0, 0])
 
     return np.array([x, y, z, roll, pitch, yaw])
+
+def quat_to_euler(x, y, z, w):
+    t0 = 2.0 * (w * x + y * z)
+    t1 = 1.0 - 2.0 * (x * x + y * y)
+    roll = np.arctan2(t0, t1)
+
+    t2 = 2.0 * (w * y - z * x)
+    t2 = np.clip(t2, -1.0, 1.0)
+    pitch = np.arcsin(t2)
+
+    t3 = 2.0 * (w * z + x * y)
+    t4 = 1.0 - 2.0 * (y * y + z * z)
+    yaw = np.arctan2(t3, t4)
+
+    return np.array([roll, pitch, yaw])
+
+def decode_compressed_depth_image(msg) -> np.ndarray:
+    """
+    Decodes a ROS2 compressed depth image (format: '16UC1; compressedDepth').
+
+    Args:
+        msg (CompressedImage): CompressedImage ROS message.
+
+    Returns:
+        np.ndarray: Decoded 16-bit depth image as a NumPy array.
+    """
+    # Ensure format is correct
+    if not msg.format.lower().endswith("compresseddepth"):
+        raise ValueError(f"Unsupported format: {msg.format}")
+
+    # The first 12 bytes of the data are the depth image header
+    header_size = 12
+    if len(msg.data) <= header_size:
+        raise ValueError("CompressedImage data too short to contain depth header")
+
+    # Strip the custom header
+    depth_header = msg.data[:header_size]
+    compressed_data = msg.data[header_size:]
+
+    # Optional: parse header (rows, cols, format, etc.) if needed
+    # rows, cols, fmt, comp = struct.unpack('<II2B', depth_header[:10])
+
+    # Decode the remaining PNG data into a 16-bit image
+    np_arr = np.frombuffer(compressed_data, dtype=np.uint8)
+    depth_image = cv2.imdecode(np_arr, cv2.IMREAD_UNCHANGED)
+
+    if depth_image is None:
+        raise ValueError("cv2.imdecode failed on compressed depth image")
+
+    if depth_image.dtype != np.uint16:
+        raise TypeError(f"Expected uint16 image, got {depth_image.dtype}")
+
+    return depth_image
 
 def in_image(point: np.ndarray,
              obs_pose: np.ndarray,

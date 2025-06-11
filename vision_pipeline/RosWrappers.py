@@ -14,11 +14,21 @@ from cv_bridge import CvBridge
 
 from sensor_msgs.msg import PointCloud2, PointField
 from geometry_msgs.msg import Point
+from tf2_ros import Buffer, TransformListener, LookupException, TimeoutException, ConnectivityException
+from geometry_msgs.msg import TransformStamped
+from rclpy.time import Time
 
+from rclpy.duration import Duration
 
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import Header
 from sensor_msgs_py import point_cloud2
+
+
+from rclpy.time      import Time
+from rclpy.duration  import Duration
+from tf2_ros         import LookupException, ConnectivityException, ExtrapolationException
+
 
 import numpy as np
 import cv2
@@ -32,45 +42,7 @@ if dir_path not in sys.path:
 
 from VisionPipeline import VisionPipe
 from FoundationModels import OWLv2, SAM2_PC
-
-
-def decode_compressed_depth_image(msg: CompressedImage) -> np.ndarray:
-    """
-    Decodes a ROS2 compressed depth image (format: '16UC1; compressedDepth').
-
-    Args:
-        msg (CompressedImage): CompressedImage ROS message.
-
-    Returns:
-        np.ndarray: Decoded 16-bit depth image as a NumPy array.
-    """
-    # Ensure format is correct
-    if not msg.format.lower().endswith("compresseddepth"):
-        raise ValueError(f"Unsupported format: {msg.format}")
-
-    # The first 12 bytes of the data are the depth image header
-    header_size = 12
-    if len(msg.data) <= header_size:
-        raise ValueError("CompressedImage data too short to contain depth header")
-
-    # Strip the custom header
-    depth_header = msg.data[:header_size]
-    compressed_data = msg.data[header_size:]
-
-    # Optional: parse header (rows, cols, format, etc.) if needed
-    # rows, cols, fmt, comp = struct.unpack('<II2B', depth_header[:10])
-
-    # Decode the remaining PNG data into a 16-bit image
-    np_arr = np.frombuffer(compressed_data, dtype=np.uint8)
-    depth_image = cv2.imdecode(np_arr, cv2.IMREAD_UNCHANGED)
-
-    if depth_image is None:
-        raise ValueError("cv2.imdecode failed on compressed depth image")
-
-    if depth_image.dtype != np.uint16:
-        raise TypeError(f"Expected uint16 image, got {depth_image.dtype}")
-
-    return depth_image
+from utils import quat_to_euler, decode_compressed_depth_image
 
 
 class RealSenseSubscriber(Node):
@@ -83,7 +55,14 @@ class RealSenseSubscriber(Node):
         self.latest_rgb = None
         self.latest_depth = None
         self.latest_info = None
+        self.latest_pose = None
         self._lock = threading.Lock()
+        self.target_frame = "pelvis"
+
+
+        # TF2 buffer and listener
+        self.tf_buffer = Buffer(cache_time=Duration(seconds=5.0))
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # QoS for image topics (RELIABLE + TRANSIENT_LOCAL)
         image_qos = QoSProfile(
@@ -160,20 +139,61 @@ class RealSenseSubscriber(Node):
     def _info_callback(self, msg: CameraInfo):
         with self._lock:
             self.latest_info = msg
+            self.latest_pose = self.lookup_pose(msg.header.stamp)
+    
+    def lookup_pose(self, stamp_msg):
+        source_frame = {
+            "head":       "head_camera_link",
+            "left_hand":  "left_hand_camera_link",
+            "right_hand": "right_hand_camera_link",
+        }.get(self.camera_name)
+        if source_frame is None:
+            self.get_logger().error(f"Unknown camera name {self.camera_name}")
+            return None
+
+        # 1. Convert to rclpy.Time (tf2 prefers that type)
+        stamp = Time.from_msg(stamp_msg)
+
+        # 2. Wait until TF for *this* stamp is present
+        if not self.tf_buffer.can_transform(self.target_frame,
+                                            source_frame,
+                                            stamp,
+                                            Duration(seconds=2)):
+            self.get_logger().warn(f"TF not available for {source_frame}->{self.target_frame} at {stamp.to_msg()}")
+            return None            # Try again on the next CameraInfo
+
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                            self.target_frame,
+                            source_frame,
+                            stamp)
+        except (LookupException,
+                ConnectivityException,
+                ExtrapolationException) as e:
+            self.get_logger().warn(f"TF lookup failed {source_frame}->{self.target_frame}: {e}")
+            return None
+
+        # --- build 6-DoF pose -----------------------------------------
+        t = transform.transform.translation
+        q = transform.transform.rotation
+        roll, pitch, yaw = quat_to_euler(q.x, q.y, q.z, q.w)
+        return [t.x, t.y, t.z, roll, pitch, yaw]
 
     def get_data(self):
-        rgb, depth, info = None, None, None
+        rgb, depth, info, pose = None, None, None, None
         if self.latest_rgb is not None and self.latest_depth is not None and self.latest_info is not None:
             with self._lock:
                 rgb = self.latest_rgb
                 depth = self.latest_depth
                 info = self.latest_info
+                pose = self.latest_pose
                 #print(f"{self.camera_name} - RGB shape: {rgb.shape}, Depth shape: {depth.shape}")
                 # clear buffers
                 self.latest_rgb = None
                 self.latest_depth = None
                 self.latest_info = None
-        return rgb, depth, info
+                self.latest_pose = None
+        return rgb, depth, info, pose
 
     def shutdown(self):
         # stop spinning and clean up
@@ -197,9 +217,12 @@ def TestSubscriber(args=None):
     try:
         while rclpy.ok():
             for sub in subs:
-                rgb, depth, info = sub.get_data()
+                rgb, depth, info, pose = sub.get_data()
                 if info is not None and rgb is not None and depth is not None:
+                    
+                    cv2.putText(rgb, f"{pose}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
                     cv2.imshow(f"{sub.camera_name}/RGB", rgb)
+
                     cv2.imshow(f"{sub.camera_name}/Depth", depth)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -292,6 +315,9 @@ def box_to_points(box):
         points.append(p2)
     return points
 
+
+
+
 class ROS_VisionPipe(VisionPipe, Node):
     def __init__(self):
         VisionPipe.__init__(self)
@@ -370,7 +396,7 @@ class ROS_VisionPipe(VisionPipe, Node):
         points = self.get_pointcloud(query)
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = "head_link"  # change as needed
+        header.frame_id = "pelvis"  # change as needed
 
         fields = []
         for name, offset in zip(['x', 'y', 'z', 'rgb'], [0, 4, 8, 12]):
@@ -404,7 +430,7 @@ class ROS_VisionPipe(VisionPipe, Node):
             #input(f"{r=}, {g=}")
             
             box_marker = Marker()
-            box_marker.header.frame_id = "head_link"   # or your preferred frame
+            box_marker.header.frame_id = "pelvis"   # or your preferred frame
             box_marker.ns = "boxes"
             box_marker.id = 0
             box_marker.type = Marker.LINE_LIST
@@ -424,7 +450,7 @@ class ROS_VisionPipe(VisionPipe, Node):
 
 
             score_marker = Marker()
-            score_marker.header.frame_id = "head_link"
+            score_marker.header.frame_id = "head_camera_link"
             score_marker.ns = "scores"
             score_marker.id = id
             id += 1
