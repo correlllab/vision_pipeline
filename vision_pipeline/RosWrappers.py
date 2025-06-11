@@ -168,6 +168,7 @@ class RealSenseSubscriber(Node):
                 rgb = self.latest_rgb
                 depth = self.latest_depth
                 info = self.latest_info
+                #print(f"{self.camera_name} - RGB shape: {rgb.shape}, Depth shape: {depth.shape}")
                 # clear buffers
                 self.latest_rgb = None
                 self.latest_depth = None

@@ -12,7 +12,16 @@ def generate_launch_description():
     declared_arguments = [
         DeclareLaunchArgument('enable_pointcloud', default_value='false'),
         DeclareLaunchArgument('enable_rgbd', default_value='false'),
+        DeclareLaunchArgument('launch_head', default_value='true'),
+        DeclareLaunchArgument('launch_left_hand', default_value='true'),
+        DeclareLaunchArgument('launch_right_hand', default_value='true')
     ]
+
+
+    launch_head = LaunchConfiguration('launch_head')
+    launch_left_hand = LaunchConfiguration('launch_left_hand')
+    launch_right_hand = LaunchConfiguration('launch_right_hand')
+    print(f"Launching cameras: head={launch_head}, left_hand={launch_left_hand}, right_hand={launch_right_hand}")
 
     # Launch configurations
     pointcloud = LaunchConfiguration('enable_pointcloud')
@@ -38,8 +47,9 @@ def generate_launch_description():
             }.items()
         )
 
-    return LaunchDescription(declared_arguments + [
-        make_camera('head', '_250122072330', width=424, height=240, fps=6),
-        make_camera('left_hand', '_838212072778', width=320, height=240, fps=6),
-        make_camera('right_hand', '_926522071700', width=320, height=240, fps=6),
-    ])
+    cameras = []
+    cameras.append(make_camera('head', '_250122072330', width=424, height=240, fps=6)) if launch_head=="true" else None
+    cameras.append(make_camera('left_hand', '_838212072778', width=320, height=240, fps=6)) if launch_left_hand=="true" else None
+    cameras.append(make_camera('right_hand', '_926522071700', width=320, height=240, fps=6)) if launch_right_hand=="true" else None
+
+    return LaunchDescription(declared_arguments + cameras)
