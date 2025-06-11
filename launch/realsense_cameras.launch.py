@@ -28,13 +28,13 @@ def generate_launch_description():
                 'camera_name': name,
                 'camera_namespace': 'realsense',
                 'serial_no': serial,
+                "rgb_camera.color_profile":f"{width},{height},{fps}",
                 'enable_color': 'true',
                 'enable_depth': 'true',
                 'pointcloud.enable': pointcloud,
                 'align_depth.enable': 'true',
                 'enable_rgbd': rgbd,
                 'enable_sync': 'true',
-                "rgb_camera.profile":f"{width},{height},{fps}",
             }.items()
         )
 
