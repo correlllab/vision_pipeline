@@ -9,6 +9,8 @@
 
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>custom_ros_messages</depend>
   
   <build_depend>builtin_interfaces</build_depend>
   <build_depend>geometry_msgs</build_depend>

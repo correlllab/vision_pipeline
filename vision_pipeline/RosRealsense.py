@@ -192,6 +192,10 @@ class RealSenseSubscriber(Node):
         self._spin_thread.join(timeout=1.0)
         self.destroy_node()
 
+    def __str__(self):
+        return f"RealSenseSubscriber(camera_name={self.camera_name})"
+    def __repr__(self):
+        return self.__str__()
 
 def TestSubscriber(args=None):
     """Example usage of RealSenseSubscriber."""
@@ -233,13 +237,11 @@ def TestFoundationModels(args=None):
     OWL = OWLv2()
     SAM = SAM2_PC()
     while rclpy.ok():
-        rgb_img, depth_img, info, obs_pose = sub.get_data()
+        rgb_img, depth_img, info, pose = sub.get_data()
         if rgb_img is None or depth_img is None or info is None:
             print("Waiting for images...")
             continue
-        if obs_pose is None:
-            print("Waiting for pose...")
-            continue
+
         #print(f"{info=}")
         intrinsics = {
             "fx": info.k[0],

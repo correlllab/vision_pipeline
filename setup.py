@@ -17,7 +17,7 @@ setup(
         ('share/' + package_name + '/launch', ['launch/realsense_cameras.launch.py']),
 
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'sensor_msgs', 'visualization_msgs', 'custom_ros_messages'],
     zip_safe=True,
     maintainer='todo',
     maintainer_email='todo@gmail.com',
@@ -27,7 +27,8 @@ setup(
         'console_scripts': [
             'camera = vision_pipeline.RosRealsense:TestSubscriber',
             'foundationmodels = vision_pipeline.RosRealsense:TestFoundationModels',
-            'visionpipeline = vision_pipeline.RosVisionPipeline:TestVisionPipe',
+            'visionpipeline = vision_pipeline.RosVisionPipeline:RunVisionPipe',
+            'test_visionpipeline = vision_pipeline.RosVisionPipeline:TestVisionPipe',
         ],
     },
 )
