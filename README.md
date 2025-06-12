@@ -282,6 +282,8 @@ self.update_client = self.create_client(UpdateTrackedObject, 'vp_update_tracked_
 self.query_client = self.create_client(Query, 'vp_query_tracked_objects')
 ```
 Once the clients are created you can add and remove a track string with an UpdateTrackedObject service like
+
+
 add:
 ```
 req = UpdateTrackedObject.Request()
