@@ -196,5 +196,69 @@ to start the visionpipeline you can just use
 user@desktop ./src/vision_pipeline/Docker/docker_run.sh ros2 run vision_pipeline visionpipeline 
 ```
 ## Code Explanaition
+### Utils.py
+Utils holds utility functions used elsewhere like 
+```
+get_points_and_colors
+iou_2d
+iou_3d
+pose_to_matrix
+matrix_to_pose
+quat_to_euler
+decode_compressed_depth_image
+in_image
+nms
+```
+### FoundationModels.py
+Foundation Models holds two key classes OWLv2 and SAM2_PC
+The OWLv2 class class consumes an rgb image and text queries and produces a dictionary of 2d candidates like
+```
+candidates:{
+  query_1:{
+    boxes:list[n_1]
+    scores:list[n_1]
+  },
+  ...
+  query_m:{
+    boxes:list[n_m]
+    scores:list[n_m]
+  },
+```
+The Sam2_PC class consumes an rgb_img a depth image, the lists of 2d bounding boxes and scores produced by OWLv2 and the camera intrisics. It produces a set of 3d candidates like
+```
+pointclouds[n]
+boundingboxes3d[n]
+scores[n]
+rgb_masks[n]
+depth_masks[n]
+```
+### VisionPipeline.py
+The vision pipeline orchestrates OWLv2 and Sam2_PC to continously update beliefs
+The vision pipeline maintains a dictionary of tracked objects like
+```
+tracked_objects[object_name] = {
+            "boxes": List of 3D bounding boxes,
+            "scores": Tensor of belief scores,
+            "pcds": List of point clouds,
+            "rgb_masks": List of lists of RGB masks,
+            "depth_masks": List of lists of depth masks
+            "names": List of strings for object names
+        }
+```
+The vision pipeline updates with the update method that takes an rgb image, depth image, a set of querry strings, the camera intrensics and the observation pose
+for each querry in the update call a set of point clouds, scores, 3d bounding boxes, and masks is generated. Then using IOU the candidates for this call to update are matched to objects already in the tracked objects array, their beliefs are then fused by converting their scores into odds and using the odds to perform a basian belif update. If an object was not updated but should have been in view we decay its belief and prune low belief tracked objects.
+### RosRealsense.py
+RosRealsense contains the class RealSenseSubscriber that takes a camera name like head, left_hand, right_hand and subscribes to the nessesary topics created in `Starting the camera topics` This subscriber should only be used with the `get_data` method that will return a tuple containing the rgb image, depth image, camera info, and pose.
+RosRealsense.py also contains the TestSubscriber and TestFoundationModel functions that are entry points that can be run with
+```
+root@DockerContainer:/ros2_ws# ros2 run vision_pipeline camera
+root@DockerContainer:/ros2_ws# ros2 run vision_pipeline foundationmodels
+```
+resspectivly
+
+### RosVisionPipeline.py
+This is the main node for the this repo that combines everything above
+it contains the ROS_VisionPipe class that runs a node. that exposes services to use the functionality from VisionPipeline.py and publishes markers and pointclouds from the tracked object dictionary.
+RosVisionPipeline relies on Update and Querry service from our Custom ros messages package.
 
 ## Usage
