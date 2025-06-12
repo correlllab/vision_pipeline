@@ -5,28 +5,6 @@ import time
 import open3d as o3d
 import rclpy
 from rclpy.node import Node
-from rclpy.executors import SingleThreadedExecutor
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
-
-
-from sensor_msgs.msg import CameraInfo, Image, CompressedImage
-from cv_bridge import CvBridge
-
-from sensor_msgs.msg import PointCloud2, PointField
-from geometry_msgs.msg import Point
-from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException
-from geometry_msgs.msg import TransformStamped
-from rclpy.time import Time
-
-from rclpy.duration import Duration
-
-from visualization_msgs.msg import Marker, MarkerArray
-from std_msgs.msg import Header
-from sensor_msgs_py import point_cloud2
-
-
-from tf2_ros         import LookupException, ConnectivityException, ExtrapolationException
-
 
 import numpy as np
 import cv2
@@ -40,6 +18,8 @@ if dir_path not in sys.path:
 
 from VisionPipeline import VisionPipe
 from FoundationModels import OWLv2, SAM2_PC
+from RosRealsense import RealSenseSubscriber
+from geometry_msgs.msg import Point
 
 
 
@@ -83,7 +63,6 @@ class ROS_VisionPipe(VisionPipe, Node):
     def __init__(self):
         VisionPipe.__init__(self)
         Node.__init__(self, "ros_vision_pipe")
-        self.sub = RealSenseSubscriber("head")
         self.track_strings = []
         self.marker_publishers = {}
         self.pc_publishers = {}
@@ -267,6 +246,7 @@ class ROS_VisionPipe(VisionPipe, Node):
 def TestVisionPipe(args=None):
     rclpy.init(args=args)
     VP = ROS_VisionPipe()
+    head_sub = 
     VP.add_track_string("drill")
     VP.add_track_string("wrench")
     VP.add_track_string("soda can")
