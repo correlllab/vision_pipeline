@@ -15,13 +15,13 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Re-import ROS 2 key and repo
-RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc \
-    | gpg --dearmor \
-    | tee /usr/share/keyrings/ros-archive-keyring.gpg > /dev/null && \
-    echo "deb [signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
-      http://packages.ros.org/ros2/ubuntu \
-      $(lsb_release -cs) main" \
-    | tee /etc/apt/sources.list.d/ros2-latest.list
+# RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc \
+#     | gpg --dearmor \
+#     | tee /usr/share/keyrings/ros-archive-keyring.gpg > /dev/null && \
+#     echo "deb [signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+#       http://packages.ros.org/ros2/ubuntu \
+#       $(lsb_release -cs) main" \
+#     | tee /etc/apt/sources.list.d/ros2-latest.list
 
 # Install Cyclone DDS
 RUN apt-get update && \
@@ -58,7 +58,7 @@ COPY ./src/custom_ros_messages /ros2_ws/src/custom_ros_messages
 
 # Set CycloneDDS as RMW implementation
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-ENV CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"enp4s0\" priority=\"default\" multicast=\"default\"/></Interfaces></General></Domain></CycloneDDS>"
+ENV CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"enx00e04c681314\" priority=\"default\" multicast=\"default\"/></Interfaces></General></Domain></CycloneDDS>"
 
 
 RUN python3 -c "from sam2.sam2_image_predictor import SAM2ImagePredictor;\

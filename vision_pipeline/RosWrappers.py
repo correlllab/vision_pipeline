@@ -14,7 +14,7 @@ from cv_bridge import CvBridge
 
 from sensor_msgs.msg import PointCloud2, PointField
 from geometry_msgs.msg import Point
-from tf2_ros import Buffer, TransformListener, LookupException, TimeoutException, ConnectivityException
+from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException
 from geometry_msgs.msg import TransformStamped
 from rclpy.time import Time
 
@@ -25,7 +25,6 @@ from std_msgs.msg import Header
 from sensor_msgs_py import point_cloud2
 
 
-from rclpy.time      import Time
 from tf2_ros         import LookupException, ConnectivityException, ExtrapolationException
 
 
@@ -114,11 +113,11 @@ class RealSenseSubscriber(Node):
             with self._lock:
                 self.latest_rgb = rgb_img
             #print(f"{self.camera_name} Received rgb image with shape: {rgb_img.shape}")
-            
+
         except Exception as e:
             print(f"Error processing RGB image for {self.camera_name}: {e}")
             pass
-        
+
 
     def _depth_callback(self, msg: CompressedImage):
         #print(f"Received depth image for {self.camera_name}")
@@ -133,13 +132,15 @@ class RealSenseSubscriber(Node):
         except Exception as e:
             print(f"Error processing Depth image for {self.camera_name}: {e}")
             pass
-        
+
 
     def _info_callback(self, msg: CameraInfo):
         with self._lock:
             self.latest_info = msg
+        time.sleep(0.2)
+        with self._lock:
             self.latest_pose = self.lookup_pose(msg.header.stamp)
-    
+
     def lookup_pose(self, stamp_msg):
         source_frame = {
             "head":       "head_camera_link",
@@ -154,11 +155,13 @@ class RealSenseSubscriber(Node):
         stamp = Time.from_msg(stamp_msg)
 
         # 2. Wait until TF for *this* stamp is present
+        now = self.get_clock().now()
+
         if not self.tf_buffer.can_transform(self.target_frame,
                                             source_frame,
                                             stamp,
-                                            Duration(seconds=0.2)):
-            self.get_logger().warn(f"TF not available for {source_frame}->{self.target_frame} at {stamp.to_msg()}")
+                                            Duration(seconds=1)):
+            self.get_logger().warn(f"TF not available for {source_frame}->{self.target_frame} at {stamp.to_msg()} now:{now.to_msg()}")
             return None            # Try again on the next CameraInfo
 
         try:
@@ -218,8 +221,8 @@ def TestSubscriber(args=None):
             for sub in subs:
                 rgb, depth, info, pose = sub.get_data()
                 if info is not None and rgb is not None and depth is not None:
-                    
-                    cv2.putText(rgb, f"{pose}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+                    cv2.putText(rgb, f"{pose}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                     cv2.imshow(f"{sub.camera_name}/RGB", rgb)
 
                     cv2.imshow(f"{sub.camera_name}/Depth", depth)
@@ -260,7 +263,7 @@ def TestFoundationModels(args=None):
         print("RGB img shape: ", rgb_img.shape)
         print("Depth img shape: ", depth_img.shape)
         obs_pose = [0, 0, 0, 0, 0, 0]
-        
+
         print("RGB img shape: ", rgb_img.shape)
         print("Depth img shape: ", depth_img.shape)
         querries = ["drill", "screw driver", "wrench"]
@@ -361,7 +364,7 @@ class ROS_VisionPipe(VisionPipe, Node):
                 self.remove_track_string(x)
         else:
             print("[ERROR] track_string must be a string or a list of strings")
- 
+
 
     def _publish_loop(self, rate_hz):
         while rclpy.ok():
@@ -390,7 +393,7 @@ class ROS_VisionPipe(VisionPipe, Node):
         rgb = (colors * 255).astype(np.uint8)
         nx6 = np.hstack([points, rgb])
         return nx6
-    
+
     def get_pointcloud_msg(self, query):
         points = self.get_pointcloud(query)
         header = Header()
@@ -415,7 +418,7 @@ class ROS_VisionPipe(VisionPipe, Node):
 
         msg = point_cloud2.create_cloud(header, fields, pc)
         return msg
-    
+
     def get_marker_msg(self, query):
         marker_array = MarkerArray()
         id = 0
@@ -427,7 +430,7 @@ class ROS_VisionPipe(VisionPipe, Node):
             g = score
             #print(type(r), type(g))
             #input(f"{r=}, {g=}")
-            
+
             box_marker = Marker()
             box_marker.header.frame_id = "pelvis"   # or your preferred frame
             box_marker.ns = "boxes"
@@ -449,7 +452,7 @@ class ROS_VisionPipe(VisionPipe, Node):
 
 
             score_marker = Marker()
-            score_marker.header.frame_id = "head_camera_link"
+            score_marker.header.frame_id = "pelvis"
             score_marker.ns = "scores"
             score_marker.id = id
             id += 1
@@ -473,11 +476,13 @@ class ROS_VisionPipe(VisionPipe, Node):
             #print(f"{score_marker.text=}")
             marker_array.markers.append(score_marker)
         return marker_array
-        
+
 
     def update(self, debug=False):
-        rgb_img, depth_img, info = self.sub.get_data()
-        pose = [0,0,0,0,0,0]
+        rgb_img, depth_img, info, pose = self.sub.get_data()
+        if pose is None:
+            print("No pose received yet.")
+            return False
         if rgb_img is None or depth_img is None or info is None:
             print("No image received yet.")
             return False
@@ -498,8 +503,8 @@ class ROS_VisionPipe(VisionPipe, Node):
             self.new_data = result
         return result
 
-    
-            
+
+
 def TestVisionPipe(args=None):
     rclpy.init(args=args)
     VP = ROS_VisionPipe()
