@@ -46,9 +46,8 @@ class RealSenseSubscriber(Node):
         self._lock = threading.Lock()
         self.target_frame = "pelvis"
 
-
-        # TF2 buffer and listener
-        self.tf_buffer = Buffer(cache_time=Duration(seconds=5.0))
+        # TF2 buffer and listener with longer cache time
+        self.tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # QoS for image topics (RELIABLE + TRANSIENT_LOCAL)
@@ -96,90 +95,123 @@ class RealSenseSubscriber(Node):
         self._spin_thread.start()
 
     def _rgb_callback(self, msg: CompressedImage):
-        #print(f"Received depth image for {self.camera_name}")
         try:
             rgb_img = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding='bgr8')
             with self._lock:
                 self.latest_rgb = rgb_img
-            #print(f"{self.camera_name} Received rgb image with shape: {rgb_img.shape}")
-
         except Exception as e:
             print(f"Error processing RGB image for {self.camera_name}: {e}")
-            pass
-
 
     def _depth_callback(self, msg: CompressedImage):
-        #print(f"Received depth image for {self.camera_name}")
-        self.latest_depth = np.zeros((100,100))
         try:
             depth = decode_compressed_depth_image(msg)
             if depth.dtype == np.uint16:
                 depth = depth.astype(np.float32) / 1000.0
             with self._lock:
                 self.latest_depth = depth
-            #print(f"{self.camera_name} Received depth image with shape: {depth.shape}")
         except Exception as e:
             print(f"Error processing Depth image for {self.camera_name}: {e}")
-            pass
-
+            # Set a default depth image on error
+            with self._lock:
+                self.latest_depth = np.zeros((100, 100))
 
     def _info_callback(self, msg: CameraInfo):
         with self._lock:
             self.latest_info = msg
-        time.sleep(0.2)
+        
+        # Look up pose asynchronously - don't block the callback
+        # Option 1: Use current time instead of message timestamp
+        pose = self.lookup_pose_current_time()
+        
+        # Option 2: If you need the exact timestamp, do it non-blockingly
+        # pose = self.lookup_pose_async(msg.header.stamp)
+        
         with self._lock:
-            self.latest_pose = self.lookup_pose(msg.header.stamp)
+            self.latest_pose = pose
 
-    def lookup_pose(self, stamp_msg):
+    def lookup_pose_current_time(self):
+        """Look up the current pose (most recent available)"""
         source_frame = {
-            "head":       "head_camera_link",
-            "left_hand":  "left_hand_camera_link",
+            "head": "head_camera_link",
+            "left_hand": "left_hand_camera_link",
             "right_hand": "right_hand_camera_link",
         }.get(self.camera_name)
+        
         if source_frame is None:
             self.get_logger().error(f"Unknown camera name {self.camera_name}")
             return None
 
-        # 1. Convert to rclpy.Time (tf2 prefers that type)
+        try:
+            # Use Time(0) to get the most recent transform available
+            transform = self.tf_buffer.lookup_transform(
+                self.target_frame,
+                source_frame,
+                Time()  # This gets the latest available transform
+            )
+            
+            # Build 6-DoF pose
+            t = transform.transform.translation
+            q = transform.transform.rotation
+            roll, pitch, yaw = quat_to_euler(q.x, q.y, q.z, q.w)
+            return [t.x, t.y, t.z, roll, pitch, yaw]
+            
+        except (LookupException, ConnectivityException, ExtrapolationException) as e:
+            self.get_logger().warn(f"TF lookup failed {source_frame}->{self.target_frame}: {e}")
+            return None
+
+    def lookup_pose_async(self, stamp_msg):
+        """Alternative: Look up pose with specific timestamp but with timeout handling"""
+        source_frame = {
+            "head": "head_camera_link",
+            "left_hand": "left_hand_camera_link",
+            "right_hand": "right_hand_camera_link",
+        }.get(self.camera_name)
+        
+        if source_frame is None:
+            self.get_logger().error(f"Unknown camera name {self.camera_name}")
+            return None
+
         stamp = Time.from_msg(stamp_msg)
 
-        # 2. Wait until TF for *this* stamp is present
-        now = self.get_clock().now()
-
-        if not self.tf_buffer.can_transform(self.target_frame,
-                                            source_frame,
-                                            stamp,
-                                            Duration(seconds=1)):
-            #self.get_logger().warn(f"TF not available for {source_frame}->{self.target_frame} at {stamp.to_msg()} now:{now.to_msg()}")
-            return None            # Try again on the next CameraInfo
+        # Check if transform is available with a short timeout
+        if not self.tf_buffer.can_transform(
+            self.target_frame,
+            source_frame,
+            stamp,
+            Duration(seconds=0.1)  # Very short timeout
+        ):
+            # Fall back to most recent transform
+            self.get_logger().debug(f"Historical TF not available, using latest for {source_frame}")
+            return self.lookup_pose_current_time()
 
         try:
             transform = self.tf_buffer.lookup_transform(
-                            self.target_frame,
-                            source_frame,
-                            stamp)
-        except (LookupException,
-                ConnectivityException,
-                ExtrapolationException) as e:
-            #self.get_logger().warn(f"TF lookup failed {source_frame}->{self.target_frame}: {e}")
-            return None
-
-        # --- build 6-DoF pose -----------------------------------------
-        t = transform.transform.translation
-        q = transform.transform.rotation
-        roll, pitch, yaw = quat_to_euler(q.x, q.y, q.z, q.w)
-        return [t.x, t.y, t.z, roll, pitch, yaw]
+                self.target_frame,
+                source_frame,
+                stamp
+            )
+            
+            # Build 6-DoF pose
+            t = transform.transform.translation
+            q = transform.transform.rotation
+            roll, pitch, yaw = quat_to_euler(q.x, q.y, q.z, q.w)
+            return [t.x, t.y, t.z, roll, pitch, yaw]
+            
+        except (LookupException, ConnectivityException, ExtrapolationException) as e:
+            self.get_logger().warn(f"TF lookup failed {source_frame}->{self.target_frame}: {e}")
+            # Fall back to current time
+            return self.lookup_pose_current_time()
 
     def get_data(self):
         rgb, depth, info, pose = None, None, None, None
         if self.latest_rgb is not None and self.latest_depth is not None and self.latest_info is not None:
             with self._lock:
-                rgb = self.latest_rgb
-                depth = self.latest_depth
+                rgb = self.latest_rgb.copy()  # Make copies to avoid race conditions
+                depth = self.latest_depth.copy()
                 info = self.latest_info
                 pose = self.latest_pose
-                #print(f"{self.camera_name} - RGB shape: {rgb.shape}, Depth shape: {depth.shape}")
-                # clear buffers
+                
+                # Clear buffers
                 self.latest_rgb = None
                 self.latest_depth = None
                 self.latest_info = None
@@ -187,21 +219,23 @@ class RealSenseSubscriber(Node):
         return rgb, depth, info, pose
 
     def shutdown(self):
-        # stop spinning and clean up
+        # Stop spinning and clean up
         self._executor.shutdown()
         self._spin_thread.join(timeout=1.0)
         self.destroy_node()
 
     def __str__(self):
         return f"RealSenseSubscriber(camera_name={self.camera_name})"
+    
     def __repr__(self):
         return self.__str__()
+
 
 def TestSubscriber(args=None):
     """Example usage of RealSenseSubscriber."""
     rclpy.init(args=args)
     print(f"hello world")
-    cams =['head', 'left_hand', 'right_hand'] #['head', 'left_hand', 'right_hand']
+    cams = ['head', 'left_hand', 'right_hand']
     subs = [RealSenseSubscriber(cam) for cam in cams]
 
     # Create OpenCV windows
@@ -214,17 +248,17 @@ def TestSubscriber(args=None):
             for sub in subs:
                 rgb, depth, info, pose = sub.get_data()
                 if info is not None and rgb is not None and depth is not None:
-
-                    cv2.putText(rgb, f"{pose}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                    # Display pose info
+                    pose_text = f"Pose: {pose}" if pose else "Pose: None"
+                    cv2.putText(rgb, pose_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
                     cv2.imshow(f"{sub.camera_name}/RGB", rgb)
-
                     cv2.imshow(f"{sub.camera_name}/Depth", depth)
+                    
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
     except KeyboardInterrupt:
         pass
-
     finally:
         for sub in subs:
             sub.shutdown()

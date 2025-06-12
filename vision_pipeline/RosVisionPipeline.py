@@ -264,12 +264,9 @@ class ROS_VisionPipe(VisionPipe, Node):
             success = True
             msg = ""
             if pose is None:
-                #print(f"No pose received yet. {sub} using default pose.")
-                #pose = [0, 0, 0, 0, 0, 0]  # Default pose if not available
-                msg += "no pose data, "
-                success = success and True
+                msg += "no pose data"
+                success = success and False
             if rgb_img is None or depth_img is None or info is None:
-                #print(f"No image received yet. {sub}")
                 msg += ",  no image data"
                 success = success and False
             if len(self.track_strings) == 0:
@@ -299,9 +296,9 @@ class ROS_VisionPipe(VisionPipe, Node):
 def RunVisionPipe():
     rclpy.init()
     head_sub = RealSenseSubscriber("head")
-    #left_hand_sub = RealSenseSubscriber("left_hand")
-    #right_hand_sub = RealSenseSubscriber("right_hand")
-    VP = ROS_VisionPipe([head_sub])
+    left_hand_sub = RealSenseSubscriber("left_hand")
+    right_hand_sub = RealSenseSubscriber("right_hand")
+    VP = ROS_VisionPipe([head_sub, left_hand_sub, right_hand_sub])
     try:
         while rclpy.ok():
             success = VP.update()
