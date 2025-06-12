@@ -19,10 +19,10 @@ if dir_path not in sys.path:
 from VisionPipeline import VisionPipe
 from FoundationModels import OWLv2, SAM2_PC
 from RosRealsense import RealSenseSubscriber
-from sensor_msgs.msg  import PointCloud2, PointField 
+from sensor_msgs.msg  import PointCloud2, PointField
 from sensor_msgs_py   import point_cloud2
-from visualization_msgs.msg import Marker, MarkerArray 
-from std_msgs.msg import Header 
+from visualization_msgs.msg import Marker, MarkerArray
+from std_msgs.msg import Header
 from custom_ros_messages.srv import Query, UpdateTrackedObject
 from utils import box_to_points
 
@@ -71,7 +71,7 @@ class ROS_VisionPipe(VisionPipe, Node):
             name='ros_vision_pipe_spin',
         )
         self._spin_thread.start()
-        
+
     def update_track_string_callback(self, request, response):
         print(f"Received request to {request.action} track string: {request.object}")
         if request.action == "add":
@@ -92,7 +92,7 @@ class ROS_VisionPipe(VisionPipe, Node):
             response.result = False
             response.message = "Invalid action. Use 'add' or 'remove'."
         return response
-    
+
     def query_tracked_objects_callback(self, request, response):
         #print(f"Querying tracked objects for: {request.query}")
         with self._lock:
@@ -102,7 +102,7 @@ class ROS_VisionPipe(VisionPipe, Node):
                 response.result = False
                 response.message = f"No tracked objects found for query: {request.query}"
                 return response
-            
+
             top_pcd, score = self.query(request.query)
             response.cloud = self.pcd_to_msg(top_pcd)
             response.score = float(score.item())
@@ -169,7 +169,7 @@ class ROS_VisionPipe(VisionPipe, Node):
         for p in pcds:
             pcd += p
         return pcd
-    
+
     def pcd_to_msg(self, pcd):
         points = np.asarray(pcd.points)
         colors = np.asarray(pcd.colors)
@@ -276,7 +276,7 @@ class ROS_VisionPipe(VisionPipe, Node):
             if not success:
                 update_success.append((sub.camera_name, False, msg))
                 continue
-        
+
             intrinsics = {
                 "fx": info.k[0],
                 "fy": info.k[4],
@@ -330,7 +330,7 @@ class ExampleClient(Node):
         future = self.update_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         return future.result()
-    
+
     def remove_track_string(self, track_string):
         req = UpdateTrackedObject.Request()
         req.object = track_string
@@ -338,7 +338,7 @@ class ExampleClient(Node):
         future = self.update_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         return future.result()
-    
+
     def query_tracked_objects(self, track_string):
         req = Query.Request()
         req.query = track_string
@@ -374,8 +374,3 @@ def TestExampleClient(args=None):
         ec.destroy_node()
         rclpy.shutdown()
         return 0
-
-    
-
-
-    
