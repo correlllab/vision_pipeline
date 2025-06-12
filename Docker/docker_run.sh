@@ -2,7 +2,7 @@
 xhost +local:root
 
 docker run --rm -it \
-  -v ~/vp_ws/src/vision_pipeline:/ros2_ws/src/vision_pipeline \
+  -v /home/humanoid/vp_ws/src/vision_pipeline:/ros2_ws/src/vision_pipeline \
   --gpus all \
   --shm-size=1g \
   --network host \
@@ -13,5 +13,3 @@ docker run --rm -it \
   -v /etc/timezone:/etc/timezone:ro \
   vision-pipeline:latest \
   "$@"
-
-
