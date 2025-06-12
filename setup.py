@@ -25,9 +25,9 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'camera = vision_pipeline.RosWrappers:TestSubscriber',
-            'foundationmodels = vision_pipeline.RosWrappers:TestFoundationModels',
-            'visionpipeline = vision_pipeline.RosWrappers:TestVisionPipe',
+            'camera = vision_pipeline.RosRealsense:TestSubscriber',
+            'foundationmodels = vision_pipeline.RosRealsense:TestFoundationModels',
+            'visionpipeline = vision_pipeline.RosVisionPipeline:TestVisionPipe',
         ],
     },
 )
