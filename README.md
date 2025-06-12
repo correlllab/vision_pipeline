@@ -254,11 +254,28 @@ RosRealsense.py also contains the TestSubscriber and TestFoundationModel functio
 root@DockerContainer:/ros2_ws# ros2 run vision_pipeline camera
 root@DockerContainer:/ros2_ws# ros2 run vision_pipeline foundationmodels
 ```
-resspectivly
+respectivly
 
 ### RosVisionPipeline.py
 This is the main node for the this repo that combines everything above
 it contains the ROS_VisionPipe class that runs a node. that exposes services to use the functionality from VisionPipeline.py and publishes markers and pointclouds from the tracked object dictionary.
-RosVisionPipeline relies on Update and Querry service from our Custom ros messages package.
+RosVisionPipeline relies on UpdateTrackedObject and Querry service from our Custom ros messages package.
 
 ## Usage
+after the docker container has built sucessfully you can run the node with 
+```
+user@desktop ./src/vision_pipeline/Docker/docker_run.sh ros2 run vision_pipeline visionpipeline 
+```
+then you can add a track string with an UpdateTrackedObject service like
+```
+filler
+```
+you can querry for where one of your tracked objects are by using the Query service like
+```
+filler
+```
+
+you can remove a track string with an UpdateTrackedObject service like
+```
+filler
+```
