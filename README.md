@@ -78,7 +78,7 @@ user@robot ros2 topic list
 ...
 
 ```
-## Getting started
+## Starting the vision pipeline
 First create a vision pipeline workspace with
 ```
 user@desktop mkdir ~/vp_ws/
