@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import cv2
 import open3d as o3d
+from geometry_msgs.msg import Point
+
 def get_points_and_colors(depths, rgbs, fx, fy, cx, cy):
     """
     Back-project a batch of depth and RGB images to 3D point clouds.
@@ -325,3 +327,36 @@ def nms(boxes, scores, iou_threshold, extra_data_lists=None, three_d=False):
     ]
 
     return kept_boxes, kept_scores, kept_extras
+
+def box_to_points(box):
+    # min and max
+    min_pt = np.array(box.min_bound)
+    max_pt = np.array(box.max_bound)
+
+    # 8 corners
+    corners = [
+        [min_pt[0], min_pt[1], min_pt[2]],
+        [max_pt[0], min_pt[1], min_pt[2]],
+        [max_pt[0], max_pt[1], min_pt[2]],
+        [min_pt[0], max_pt[1], min_pt[2]],
+        [min_pt[0], min_pt[1], max_pt[2]],
+        [max_pt[0], min_pt[1], max_pt[2]],
+        [max_pt[0], max_pt[1], max_pt[2]],
+        [min_pt[0], max_pt[1], max_pt[2]]
+    ]
+
+    # 12 edges as pairs of indices into corners list
+    edges = [
+        (0, 1), (1, 2), (2, 3), (3, 0),  # bottom face
+        (4, 5), (5, 6), (6, 7), (7, 4),  # top face
+        (0, 4), (1, 5), (2, 6), (3, 7)   # vertical edges
+    ]
+
+    # Build list of Points for LINE_LIST (pairs form lines)
+    points = []
+    for i, j in edges:
+        p1 = Point(x=corners[i][0], y=corners[i][1], z=corners[i][2])
+        p2 = Point(x=corners[j][0], y=corners[j][1], z=corners[j][2])
+        points.append(p1)
+        points.append(p2)
+    return points

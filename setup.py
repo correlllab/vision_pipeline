@@ -28,7 +28,7 @@ setup(
             'camera = vision_pipeline.RosRealsense:TestSubscriber',
             'foundationmodels = vision_pipeline.RosRealsense:TestFoundationModels',
             'visionpipeline = vision_pipeline.RosVisionPipeline:RunVisionPipe',
-            'test_visionpipeline = vision_pipeline.RosVisionPipeline:TestVisionPipe',
+            'exampleclient = vision_pipeline.RosVisionPipeline:TestExampleClient',
         ],
     },
 )

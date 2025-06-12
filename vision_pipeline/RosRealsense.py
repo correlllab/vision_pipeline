@@ -150,7 +150,7 @@ class RealSenseSubscriber(Node):
                                             source_frame,
                                             stamp,
                                             Duration(seconds=1)):
-            self.get_logger().warn(f"TF not available for {source_frame}->{self.target_frame} at {stamp.to_msg()} now:{now.to_msg()}")
+            #self.get_logger().warn(f"TF not available for {source_frame}->{self.target_frame} at {stamp.to_msg()} now:{now.to_msg()}")
             return None            # Try again on the next CameraInfo
 
         try:
@@ -161,7 +161,7 @@ class RealSenseSubscriber(Node):
         except (LookupException,
                 ConnectivityException,
                 ExtrapolationException) as e:
-            self.get_logger().warn(f"TF lookup failed {source_frame}->{self.target_frame}: {e}")
+            #self.get_logger().warn(f"TF lookup failed {source_frame}->{self.target_frame}: {e}")
             return None
 
         # --- build 6-DoF pose -----------------------------------------
