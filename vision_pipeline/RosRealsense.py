@@ -27,7 +27,6 @@ dir_path = os.path.dirname(os.path.abspath(__file__))
 if dir_path not in sys.path:
     sys.path.insert(0, dir_path)
 
-from VisionPipeline import VisionPipe
 from FoundationModels import OWLv2, SAM2_PC
 from utils import quat_to_euler, decode_compressed_depth_image
 
@@ -118,14 +117,14 @@ class RealSenseSubscriber(Node):
     def _info_callback(self, msg: CameraInfo):
         with self._lock:
             self.latest_info = msg
-        
+
         # Look up pose asynchronously - don't block the callback
         # Option 1: Use current time instead of message timestamp
-        pose = self.lookup_pose_current_time()
-        
+        #pose = self.lookup_pose_current_time()
+
         # Option 2: If you need the exact timestamp, do it non-blockingly
-        # pose = self.lookup_pose_async(msg.header.stamp)
-        
+        pose = self.lookup_pose_async(msg.header.stamp)
+
         with self._lock:
             self.latest_pose = pose
 
@@ -136,7 +135,7 @@ class RealSenseSubscriber(Node):
             "left_hand": "left_hand_camera_link",
             "right_hand": "right_hand_camera_link",
         }.get(self.camera_name)
-        
+
         if source_frame is None:
             self.get_logger().error(f"Unknown camera name {self.camera_name}")
             return None
@@ -148,13 +147,13 @@ class RealSenseSubscriber(Node):
                 source_frame,
                 Time()  # This gets the latest available transform
             )
-            
+
             # Build 6-DoF pose
             t = transform.transform.translation
             q = transform.transform.rotation
             roll, pitch, yaw = quat_to_euler(q.x, q.y, q.z, q.w)
             return [t.x, t.y, t.z, roll, pitch, yaw]
-            
+
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
             self.get_logger().warn(f"TF lookup failed {source_frame}->{self.target_frame}: {e}")
             return None
@@ -166,7 +165,7 @@ class RealSenseSubscriber(Node):
             "left_hand": "left_hand_camera_link",
             "right_hand": "right_hand_camera_link",
         }.get(self.camera_name)
-        
+
         if source_frame is None:
             self.get_logger().error(f"Unknown camera name {self.camera_name}")
             return None
@@ -190,13 +189,13 @@ class RealSenseSubscriber(Node):
                 source_frame,
                 stamp
             )
-            
+
             # Build 6-DoF pose
             t = transform.transform.translation
             q = transform.transform.rotation
             roll, pitch, yaw = quat_to_euler(q.x, q.y, q.z, q.w)
             return [t.x, t.y, t.z, roll, pitch, yaw]
-            
+
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
             self.get_logger().warn(f"TF lookup failed {source_frame}->{self.target_frame}: {e}")
             # Fall back to current time
@@ -210,7 +209,7 @@ class RealSenseSubscriber(Node):
                 depth = self.latest_depth.copy()
                 info = self.latest_info
                 pose = self.latest_pose
-                
+
                 # Clear buffers
                 self.latest_rgb = None
                 self.latest_depth = None
@@ -226,7 +225,7 @@ class RealSenseSubscriber(Node):
 
     def __str__(self):
         return f"RealSenseSubscriber(camera_name={self.camera_name})"
-    
+
     def __repr__(self):
         return self.__str__()
 
@@ -253,7 +252,7 @@ def TestSubscriber(args=None):
                     cv2.putText(rgb, pose_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
                     cv2.imshow(f"{sub.camera_name}/RGB", rgb)
                     cv2.imshow(f"{sub.camera_name}/Depth", depth)
-                    
+
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
@@ -307,30 +306,3 @@ def TestFoundationModels(args=None):
             plt.show(block = False)
         plt.show(block = True)
     return None
-
-
-    rclpy.init(args=args)
-    VP = ROS_VisionPipe()
-    VP.add_track_string("drill")
-    VP.add_track_string("wrench")
-    VP.add_track_string("soda can")
-    VP.add_track_string(["wrench", "screwdriver"])
-    success_counter = 0
-    while rclpy.ok():
-        #print("looped")
-        success = VP.update()
-        success_counter += 1 if success != False else 0
-        if success:
-            print(f"Success {success_counter} with {len(VP.tracked_objects)} tracked objects")
-            #VP.vis_belief2D(query=f"{VP.track_strings[-1]}", blocking=False, prefix = f"T={success_counter} ")
-            pass
-        time.sleep(1)
-
-
-    for object, predictions in VP.tracked_objects.items():
-        print(f"{object=}")
-        print(f"   {len(predictions['boxes'])=}, {len(predictions['pcds'])=}, {predictions['scores'].shape=}")
-        for i, pcd in enumerate(predictions["pcds"]):
-            print(f"   {i=}, {predictions['scores'][i]=}")
-        print(f"{object=}")
-        VP.vis_belief2D(query=object, blocking=False, prefix=f"Final {object} predictions")

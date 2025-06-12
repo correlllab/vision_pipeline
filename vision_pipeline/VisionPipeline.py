@@ -64,6 +64,8 @@ class VisionPipe:
             #convert each set of [boxes, scores] to 3D point clouds
             pcds, box_3d, scores, rgb_masks, depth_masks = self.sam2.predict(rgb_img, depth_img, prediction_2d["boxes"], prediction_2d["scores"], I, debug=debug)
             pcds = [pcd.transform(transformation_matrix) for pcd in pcds]
+            box_3d = [pcd.get_axis_aligned_bounding_box() for pcd in pcds]
+            #print(f"{box_3d=}")
             if debug:
                 display_sam2(pcds, box_3d, scores, window_prefix=f"{object} ")
 
@@ -105,7 +107,7 @@ class VisionPipe:
                 self.tracked_objects[object]["rgb_masks"] = [[rgb_mask] for rgb_mask in predictions_3d[object]["rgb_masks"]]
                 self.tracked_objects[object]["depth_masks"] = [[depth_mask] for depth_mask in predictions_3d[object]["depth_masks"]]
                 self.tracked_objects[object]["names"] = [f"{object}_{i}" for i in range(len(predictions_3d[object]["boxes"]))]
-                    
+
             else:
                 #keep track of which objects were updated, if an object was not updated but should have been, we will update its belief score
                 updated = [False for i in range(len(self.tracked_objects[object]["boxes"]))]
@@ -258,7 +260,7 @@ def test_VP(display2d=True):
     video_prof = profile.get_stream(rs.stream.color).as_video_stream_profile()
     intrinsics = video_prof.get_intrinsics()
 
-    
+
 
     vp = VisionPipe()
     for i in range(10):
@@ -267,12 +269,12 @@ def test_VP(display2d=True):
 
         color_frame = aligned.get_color_frame()
         rgb_img = np.asanyarray(color_frame.get_data())
-        
+
 
         depth_frame = aligned.get_depth_frame()
         depth_img = np.asanyarray(depth_frame.get_data()).astype(np.float32)
         depth_img *= depth_scale
-        
+
 
         I = {
             "fx": intrinsics.fx,
@@ -282,7 +284,7 @@ def test_VP(display2d=True):
             "width": rgb_img.shape[1],
             "height": rgb_img.shape[0],
         }
-            
+
         print(f"Frame {i}:")
         #print(f"   {rgb_img.shape=}, {depth_img.shape=}, {I=}")
         predictions = vp.update(rgb_img, depth_img, config["test_querys"], I, [0.0]*6)
