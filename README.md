@@ -261,21 +261,50 @@ This is the main node for the this repo that combines everything above
 it contains the ROS_VisionPipe class that runs a node. that exposes services to use the functionality from VisionPipeline.py and publishes markers and pointclouds from the tracked object dictionary.
 RosVisionPipeline relies on UpdateTrackedObject and Querry service from our Custom ros messages package.
 
+This file also provides an example client for interacting with the services
+
 ## Usage
 after the docker container has built sucessfully you can run the node with 
 ```
 user@desktop ./src/vision_pipeline/Docker/docker_run.sh ros2 run vision_pipeline visionpipeline 
 ```
-then you can add a track string with an UpdateTrackedObject service like
+You can run the example client that looks for a drill with
 ```
-filler
+user@desktop ./src/vision_pipeline/Docker/docker_run.sh ros2 run vision_pipeline exampleclient 
+```
+first you need to import the services
+```
+from custom_ros_messages.srv import Query, UpdateTrackedObject
+```
+then you can create service clients inside a node class like
+```
+self.update_client = self.create_client(UpdateTrackedObject, 'vp_update_tracked_object')
+self.query_client = self.create_client(Query, 'vp_query_tracked_objects')
+```
+Once the clients are created you can add and remove a track string with an UpdateTrackedObject service like
+add:
+```
+req = UpdateTrackedObject.Request()
+req.object = track_string
+req.action = "add"
+future = self.update_client.call_async(req)
+rclpy.spin_until_future_complete(self, future)
+result = future.result()
+```
+remove:
+```
+req = UpdateTrackedObject.Request()
+req.object = track_string
+req.action = "remove"
+future = self.update_client.call_async(req)
+rclpy.spin_until_future_complete(self, future)
+result = future.result()
 ```
 you can querry for where one of your tracked objects are by using the Query service like
 ```
-filler
-```
-
-you can remove a track string with an UpdateTrackedObject service like
-```
-filler
+req = Query.Request()
+req.query = track_string
+future = self.query_client.call_async(req)
+rclpy.spin_until_future_complete(self, future)
+result = future.result()
 ```
