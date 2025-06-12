@@ -13,7 +13,6 @@ if dir_path not in sys.path:
 
 from utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image
 from FoundationModels import OWLv2, SAM2_PC, display_owl, display_sam2
-import threading
 _script_dir = os.path.dirname(os.path.realpath(__file__))
 _config_path = os.path.join(_script_dir, 'config.json')
 fig_dir = os.path.join(_script_dir, 'figures')
