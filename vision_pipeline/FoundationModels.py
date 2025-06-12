@@ -36,9 +36,6 @@ class OWLv2:
     def __init__(self):
         """
         Initializes the OWLv2 model and processor.
-        Parameters:
-        - iou_th: IoU threshold for NMS
-        - discard_percentile: percentile to discard low scores
         """
         # Load the OWLv2 model and processor
         self.processor = OwlViTProcessor.from_pretrained("google/owlvit-base-patch32")
@@ -55,7 +52,6 @@ class OWLv2:
 
     def predict(self, img, querries, debug = False):
         """
-        Gets realsense frames
         Parameters:
         - img: image to produce bounding boxes in
         - querries: list of strings whos bounding boxes we want
