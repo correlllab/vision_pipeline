@@ -20,7 +20,11 @@ from VisionPipeline import VisionPipe
 from FoundationModels import OWLv2, SAM2_PC
 from RosRealsense import RealSenseSubscriber
 from geometry_msgs.msg import Point
-
+from sensor_msgs.msg  import PointCloud2, PointField 
+from sensor_msgs_py   import point_cloud2
+from visualization_msgs.msg import Marker, MarkerArray 
+from std_msgs.msg import Header 
+from custom_ros_messages.srv import Query, UpdateTrackedObject
 
 
 def box_to_points(box):
@@ -60,15 +64,32 @@ def box_to_points(box):
 
 
 class ROS_VisionPipe(VisionPipe, Node):
-    def __init__(self):
+    def __init__(self, subscribers):
+        assert isinstance(subscribers, (RealSenseSubscriber, list)), "Subscribers must be a RealSenseSubscriber or a list of them."
+        if isinstance(subscribers, RealSenseSubscriber):
+            subscribers = [subscribers]
         VisionPipe.__init__(self)
         Node.__init__(self, "ros_vision_pipe")
+        self.subscribers = subscribers
         self.track_strings = []
         self.marker_publishers = {}
         self.pc_publishers = {}
         self._lock = threading.Lock()
         self._start_publishers()
+        self.UpdateTrackedObject_srv = self.create_service(UpdateTrackedObject, 'vp_update_tracked_object', self.update_track_string_callback)
+        self.Query_srv = self.create_service(Query, 'vp_query_tracked_objects', self.query_tracked_objects_callback)
 
+    def update_track_string_callback(self, request, response):
+        print("update_track_string_callback called")
+        print(f"{request=}")
+        print(f"{response=}")
+        return response
+    def query(self, request, response):
+        print("query_tracked_objects_callback called")
+        print(f"{request=}")
+        print(f"{response=}")
+        return response
+    
     def _start_publishers(self, rate_hz=10):
         with self._lock:
             self.new_data = True
@@ -102,8 +123,6 @@ class ROS_VisionPipe(VisionPipe, Node):
                 self.remove_track_string(x)
         else:
             print("[ERROR] track_string must be a string or a list of strings")
-
-
     def _publish_loop(self, rate_hz):
         while rclpy.ok():
             if self.new_data:
@@ -217,40 +236,64 @@ class ROS_VisionPipe(VisionPipe, Node):
 
 
     def update(self, debug=False):
-        rgb_img, depth_img, info, pose = self.sub.get_data()
-        if pose is None:
-            print("No pose received yet.")
-            return False
-        if rgb_img is None or depth_img is None or info is None:
-            print("No image received yet.")
-            return False
-        if len(self.track_strings) == 0:
-            #print("No track strings provided.")
-            return False
-        #print(f"\n\n{info=}")
-        intrinsics = {
-            "fx": info.k[0],
-            "fy": info.k[4],
-            "cx": info.k[2],
-            "cy": info.k[5],
-            "width": info.width,
-            "height": info.height
-        }
-        result = super().update(rgb_img, depth_img, self.track_strings, intrinsics, pose, debug=debug)
-        with self._lock:
-            self.new_data = result
-        return result
+        for sub in self.subscribers:
+            rgb_img, depth_img, info, pose = sub.get_data()
+            if pose is None:
+                print(f"No pose received yet. {sub}")
+                return False
+            if rgb_img is None or depth_img is None or info is None:
+                print(f"No image received yet. {sub}")
+                return False
+            if len(self.track_strings) == 0:
+                print("No track strings provided.")
+                return False
+            intrinsics = {
+                "fx": info.k[0],
+                "fy": info.k[4],
+                "cx": info.k[2],
+                "cy": info.k[5],
+                "width": info.width,
+                "height": info.height
+            }
+            result = super().update(rgb_img, depth_img, self.track_strings, intrinsics, pose, debug=debug)
+            with self._lock:
+                self.new_data = result
+        return True
 
+def RunVisionPipe():
+    rclpy.init()
+    head_sub = RealSenseSubscriber("head")
+    left_hand_sub = RealSenseSubscriber("left_hand")
+    right_hand_sub = RealSenseSubscriber("right_hand")
+    VP = ROS_VisionPipe([head_sub, left_hand_sub, right_hand_sub])
+    try:
+        while rclpy.ok():
+            success = VP.update()
+            if success:
+                print(f"Success with {len(VP.tracked_objects)} tracked objects")
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down...")
+    finally:
+        VP.destroy_node()
+        rclpy.shutdown()
 
+class ExampleClient(Node):
+    def __init__(self):
+        super().__init__('dummy_client')
+        self.cli = self.create_client(UpdateTrackedObject, 'update_tracked_object')
+        while not self.cli.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Service not available, waiting again...')
+        self.req = UpdateTrackedObject.Request()
+
+    def send_request(self, track_string):
+        self.req.track_string = track_string
+        self.future = self.cli.call_async(self.req)
+        rclpy.spin_until_future_complete(self, self.future)
+        return self.future.result() if self.future.done() else None
 
 def TestVisionPipe(args=None):
-    rclpy.init(args=args)
-    VP = ROS_VisionPipe()
-    head_sub = 
-    VP.add_track_string("drill")
-    VP.add_track_string("wrench")
-    VP.add_track_string("soda can")
-    VP.add_track_string(["wrench", "screwdriver"])
+    rclpy.init()
     success_counter = 0
     while rclpy.ok():
         #print("looped")
@@ -259,14 +302,5 @@ def TestVisionPipe(args=None):
         if success:
             print(f"Success {success_counter} with {len(VP.tracked_objects)} tracked objects")
             #VP.vis_belief2D(query=f"{VP.track_strings[-1]}", blocking=False, prefix = f"T={success_counter} ")
-            pass
+            #pass
         time.sleep(1)
-
-
-    for object, predictions in VP.tracked_objects.items():
-        print(f"{object=}")
-        print(f"   {len(predictions['boxes'])=}, {len(predictions['pcds'])=}, {predictions['scores'].shape=}")
-        for i, pcd in enumerate(predictions["pcds"]):
-            print(f"   {i=}, {predictions['scores'][i]=}")
-        print(f"{object=}")
-        VP.vis_belief2D(query=object, blocking=False, prefix=f"Final {object} predictions")
