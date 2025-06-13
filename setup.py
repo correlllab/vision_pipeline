@@ -14,7 +14,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         # include configuration file
         ('share/' + package_name, [os.path.join('vision_pipeline', 'config.json')]),
-        ('share/' + package_name + '/launch', ['launch/realsense_cameras.launch.py']),
+        ('share/' + package_name + '/launch', ['launch/realsense_cameras.launch.py', "launch/example_client.launch.py", "launch/vision_pipeline_rviz.launch.py"]),
 
     ],
     install_requires=['setuptools', 'sensor_msgs', 'visualization_msgs', 'custom_ros_messages'],
