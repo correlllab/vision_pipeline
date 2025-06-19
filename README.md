@@ -1,7 +1,7 @@
 # VisionPipeline
 This is a work in progress repo that holds a probabilistic vision pipeline
 ## Starting the camera topics
-to start the camera topics ssh into your robot where the realsense are connected and create a vision pipleine workspace
+To start the camera topics ssh into your robot where the realsense are connected and create a vision pipleine workspace
 ```
 user@robot mkdir ~/vp_ws/
 user@robot mkdir ~/vp_ws/src
@@ -190,7 +190,6 @@ root@DockerContainer:/ros2_ws# ros2 run vision_pipeline camera
 root@DockerContainer:/ros2_ws# ros2 run vision_pipeline foundationmodels
 root@DockerContainer:/ros2_ws# ros2 run vision_pipeline visionpipeline
 ```
-
 to start the visionpipeline you can just use
 ```
 user@desktop ./src/vision_pipeline/Docker/docker_run.sh ros2 run vision_pipeline visionpipeline 
@@ -224,7 +223,7 @@ candidates:{
     scores:list[n_m]
   },
 ```
-The Sam2_PC class consumes an rgb_img a depth image, the lists of 2d bounding boxes and scores produced by OWLv2 and the camera intrisics. It produces a set of 3d candidates like
+The Sam2_PC class consumes an rgb image, a depth image, the lists of 2d bounding boxes and scores produced for a single querry by OWLv2, and the camera intrisics. It produces a set of 3d candidates like
 ```
 pointclouds[n]
 boundingboxes3d[n]
@@ -233,7 +232,7 @@ rgb_masks[n]
 depth_masks[n]
 ```
 ### VisionPipeline.py
-The vision pipeline orchestrates OWLv2 and Sam2_PC to continously update beliefs
+The vision pipeline orchestrates OWLv2 and Sam2_PC to continously update beliefs about objects that have been querried for
 The vision pipeline maintains a dictionary of tracked objects like
 ```
 tracked_objects[object_name] = {
@@ -245,8 +244,8 @@ tracked_objects[object_name] = {
             "names": List of strings for object names
         }
 ```
-The vision pipeline updates with the update method that takes an rgb image, depth image, a set of querry strings, the camera intrensics and the observation pose
-for each querry in the update call a set of point clouds, scores, 3d bounding boxes, and masks is generated. Then using IOU the candidates for this call to update are matched to objects already in the tracked objects array, their beliefs are then fused by converting their scores into odds and using the odds to perform a basian belif update. If an object was not updated but should have been in view we decay its belief and prune low belief tracked objects.
+The vision pipeline updates with the update method that takes an rgb image, depth image, a set of querry strings, the camera intrensics and the observation pose.
+For each querry in the update call a set 3d candidates made up of point clouds, scores, 3d bounding boxes, and masks is generated. Then using the IOU metric the candidates from this call to update are matched to objects already in the tracked objects array, their beliefs are then fused by converting their scores into odds and using the odds to perform a baysian belif update. If an object was not updated but should have been in view we decay its belief and prune low belief tracked objects.
 ### RosRealsense.py
 RosRealsense contains the class RealSenseSubscriber that takes a camera name like head, left_hand, right_hand and subscribes to the nessesary topics created in `Starting the camera topics` This subscriber should only be used with the `get_data` method that will return a tuple containing the rgb image, depth image, camera info, and pose.
 RosRealsense.py also contains the TestSubscriber and TestFoundationModel functions that are entry points that can be run with
@@ -272,7 +271,15 @@ You can run the example client that looks for a drill with
 ```
 user@desktop ./src/vision_pipeline/Docker/docker_run.sh ros2 run vision_pipeline exampleclient 
 ```
-first you need to import the services
+If you just want to manually set a tracked object and querry for it you can use 
+```
+ros2 service call /vp_update_tracked_object custom_ros_messages/srv/UpdateTrackedObject "{object: 'object to track', action: 'add'}"
+ros2 service call /vp_update_tracked_object custom_ros_messages/srv/UpdateTrackedObject "{object: 'object to track', action: 'remove'}"
+ros2 service call /vp_query_tracked_objects custom_ros_messages/srv/Query "{query: 'object being tracked'}"
+```
+
+
+To programatically use the services you first need to import the services
 ```
 from custom_ros_messages.srv import Query, UpdateTrackedObject
 ```
