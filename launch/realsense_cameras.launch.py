@@ -52,6 +52,6 @@ def generate_launch_description():
 
     return LaunchDescription(declared_arguments + [
         make_camera('head', '_250122072330', width=424, height=240, fps=6, condition=launch_head),
-        make_camera('left_hand', '_838212072778', width=320, height=240, fps=6, condition=launch_left_hand),
-        make_camera('right_hand', '_926522071700', width=320, height=240, fps=6, condition=launch_right_hand),
+        make_camera('left_hand', '_838212072778', width=424, height=240, fps=6, condition=launch_left_hand),
+        make_camera('right_hand', '_926522071700', width=424, height=240, fps=6, condition=launch_right_hand),
     ])
