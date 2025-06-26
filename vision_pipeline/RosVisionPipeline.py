@@ -25,6 +25,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import Header
 from custom_ros_messages.srv import Query, UpdateTrackedObject
 from utils import box_to_points
+from rclpy.time import Time
+
 
 
 class ROS_VisionPipe(VisionPipe, Node):
@@ -262,18 +264,19 @@ class ROS_VisionPipe(VisionPipe, Node):
         for sub in self.subscribers:
             rgb_img, depth_img, info, pose = sub.get_data()
             success = True
-            msg = ""
+            msg_components = []
             if pose is None:
-                msg += "no pose data"
+                msg_components.append("no pose data")
                 success = success and False
             if rgb_img is None or depth_img is None or info is None:
-                msg += ",  no image data"
+                msg_components.append("no image data")
                 success = success and False
             if len(self.track_strings) == 0:
-                msg += ",  no track strings"
+                msg_components.append("no track strings")
                 success = success and False
 
             if not success:
+                msg = ", ".join(msg_components)
                 update_success.append((sub.camera_name, False, msg))
                 continue
 
@@ -286,10 +289,11 @@ class ROS_VisionPipe(VisionPipe, Node):
                 "height": info.height
             }
             with self._lock:
-                result = super().update(rgb_img, depth_img, self.track_strings, intrinsics, pose, debug=debug)
+                time_stamp = Time.from_msg(info.header.stamp).nanoseconds / 1e9
+                result, update_msg = super().update(rgb_img, depth_img, self.track_strings, intrinsics, pose, time_stamp, debug=debug)
                 self.new_data = self.new_data or result
-                if result:
-                    msg += "  update successful"
+                msg_components.append(update_msg)
+            msg = ", ".join(msg_components)
             update_success.append((sub.camera_name, result, msg))
         return update_success
 
@@ -302,8 +306,13 @@ def RunVisionPipe():
     try:
         while rclpy.ok():
             success = VP.update()
-            out_str = [f"{sub}: {'Success' if s else 'Failed'} {msg}" for sub, s, msg in success]
-            print(f"{len(VP.track_strings)=} Update Status: " + ", ".join(out_str))
+            out_str = ""
+            for cam_name, result, msg in success:
+                if result:
+                    out_str += f"   {cam_name}: OK ({msg})\n"
+                else:
+                    out_str += f"   {cam_name}: FAILED ({msg})\n"
+            print(f"{len(VP.track_strings)=} Update Status:\n{out_str}")
             VP.publish_viz()
             time.sleep(1)
     except KeyboardInterrupt:
