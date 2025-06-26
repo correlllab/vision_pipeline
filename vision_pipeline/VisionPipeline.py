@@ -37,12 +37,13 @@ class VisionPipe:
         self.owv2 = OWLv2()
         self.sam2 = SAM2_PC()
         self.tracked_objects = {}
+        self.pose_time_tracker = ()
         self.update_count = 0
 
-    def update(self, rgb_img, depth_img, querries, I, obs_pose, debug = False):
+    def update(self, rgb_img, depth_img, querries, I, obs_pose, time_stamp, debug = False):
         """
         Generates a set of 3D predictions and then updates the tracked objects based on the new observations.
-        predictions3d[object_name] = {
+        candidates_3d[object_name] = {
             "boxes": List of 3D bounding boxes,
             "scores": Tensor of belief scores,
             "pcds": List of point clouds,
@@ -50,39 +51,49 @@ class VisionPipe:
             "depth_masks": List of depth masks
         }
         """
-        self.last_pose = obs_pose
+        #throw away old poses
+        self.pose_time_tracker = [(pose, time) for pose, time in self.pose_time_tracker if time > (time_stamp - config["pose_expire_time"])]
+
+        #if the current call to update is too close to a prior, non expired call to update
+        pose_distances = [np.linalg.norm(np.array(obs_pose) - np.array(pose)) for pose, _ in self.pose_time_tracker]
+        #print(f"Pose distances: {pose_distances}")
+        if len(pose_distances) > 0 and min(pose_distances) < config["change_in_pose_threshold"] and self.update_count > 0:
+            return False, "too close to previous update"
+        
+
         #get 2d predictions dict with lists of scores, boxes from OWLv2
-        predictions_2d = self.owv2.predict(rgb_img, querries, debug=debug)
+        candidates_2d = self.owv2.predict(rgb_img, querries, debug=debug)
         if debug:
-            display_owl(rgb_img, predictions_2d)
+            display_owl(rgb_img, candidates_2d)
 
         #prepare the 3d predictions dict
-        predictions_3d = {}
+        candidates_3d = {}
         #Will need to transform points according to robot pose
         transformation_matrix = pose_to_matrix(obs_pose)
-        for object, prediction_2d in predictions_2d.items():
+        for object, candidate in candidates_2d.items():
             #convert each set of [boxes, scores] to 3D point clouds
-            pcds, box_3d, scores, rgb_masks, depth_masks = self.sam2.predict(rgb_img, depth_img, prediction_2d["boxes"], prediction_2d["scores"], I, debug=debug)
+            pcds, box_3d, scores, rgb_masks, depth_masks = self.sam2.predict(rgb_img, depth_img, candidate["boxes"], candidate["scores"], I, debug=debug)
             pcds = [pcd.transform(transformation_matrix) for pcd in pcds]
             box_3d = [pcd.get_axis_aligned_bounding_box() for pcd in pcds]
             #print(f"{box_3d=}")
             if debug:
                 display_sam2(pcds, box_3d, scores, window_prefix=f"{object} ")
 
-            #populate the predictions_3d dict
-            predictions_3d[object] = {"boxes": box_3d, "scores": scores, "pcds": pcds, "rgb_masks": rgb_masks, "depth_masks": depth_masks}
+            #populate the candidates_3d dict
+            candidates_3d[object] = {"boxes": box_3d, "scores": scores, "pcds": pcds, "rgb_masks": rgb_masks, "depth_masks": depth_masks}
             if debug:
                 print(f"{object=}")
-                print(f"   {len(predictions_3d[object]['boxes'])=}, {len(predictions_3d[object]['pcds'])=}, {predictions_3d[object]['scores'].shape=}, {predictions_3d[object]['rgb_masks'].shape=}, {predictions_3d[object]['depth_masks'].shape=}")
+                print(f"   {len(candidates_3d[object]['boxes'])=}, {len(candidates_3d[object]['pcds'])=}, {candidates_3d[object]['scores'].shape=}, {candidates_3d[object]['rgb_masks'].shape=}, {candidates_3d[object]['depth_masks'].shape=}")
         #update the tracked objects with the new predictions
-        self.update_tracked_objects(predictions_3d, obs_pose, I, debug=debug)
+        self.update_tracked_objects(candidates_3d, obs_pose, I, debug=debug)
+        self.remove_low_belief_objects()
         self.update_count += 1
+        self.pose_time_tracker.append((obs_pose, time_stamp))
+        return True, "successfully updated"
 
-        return self.tracked_objects
-
-    def update_tracked_objects(self, predictions_3d, obs_pose, I, debug = False):
+    def update_tracked_objects(self, candidates_3d, obs_pose, I, debug = False):
         """
-        Given a set of 3D predictions, updates the tracked objects dictionary.
+        Given a set of 3D candidates, updates the tracked objects dictionary.
         tracked_objects[object_name] = {
             "boxes": List of 3D bounding boxes,
             "scores": Tensor of belief scores,
@@ -91,7 +102,7 @@ class VisionPipe:
             "depth_masks": List of lists of depth masks
             "names": List of strings for object names
         }
-        predictions3d[object_name] = {
+        candidates_3d[object_name] = {
             "boxes": List of 3D bounding boxes,
             "scores": Tensor of belief scores,
             "pcds": List of point clouds,
@@ -99,101 +110,114 @@ class VisionPipe:
             "depth_masks": List of depth masks
         }
         """
-        #for each candidate object in predictions_3d
-        for object, predictions in predictions_3d.items():
+        #for each candidate object in candidates_3d
+        for object, candidates in candidates_3d.items():
             #if it wasnt being tracked before add all candidates to tracked objects
             if object not in self.tracked_objects:
-                self.tracked_objects[object] = predictions_3d[object]
-                self.tracked_objects[object]["rgb_masks"] = [[rgb_mask] for rgb_mask in predictions_3d[object]["rgb_masks"]]
-                self.tracked_objects[object]["depth_masks"] = [[depth_mask] for depth_mask in predictions_3d[object]["depth_masks"]]
-                self.tracked_objects[object]["names"] = [f"{object}_{i}" for i in range(len(predictions_3d[object]["boxes"]))]
+                self.tracked_objects[object] = candidates
+                self.tracked_objects[object]["rgb_masks"] = [[rgb_mask] for rgb_mask in candidates["rgb_masks"]]
+                self.tracked_objects[object]["depth_masks"] = [[depth_mask] for depth_mask in candidates["depth_masks"]]
+                self.tracked_objects[object]["names"] = [f"{object}_{i}" for i in range(len(candidates["boxes"]))]
+                continue #object was not tracked before, so we just add it
 
-            else:
-                #keep track of which objects were updated, if an object was not updated but should have been, we will update its belief score
-                updated = [False for i in range(len(self.tracked_objects[object]["boxes"]))]
-                #for each candidate
-                for candidate_box, candidate_score, candidate_pcd, candidate_rgb_mask, candidate_depth_mask in zip(predictions["boxes"], predictions["scores"], predictions["pcds"], predictions["rgb_masks"], predictions["depth_masks"]):
-                    #calculate the 3D IoU with all tracked objects
-                    ious = [iou_3d(candidate_box, box) for box in self.tracked_objects[object]["boxes"]]
-                    max_iou = max(ious)
-                    #If the max IoU is below the threshold, add the candidate as a new object
-                    if max_iou < config["iou_3d_matching"]:
-                        self.tracked_objects[object]["boxes"].append(candidate_box)
-                        self.tracked_objects[object]["pcds"].append(candidate_pcd)
-                        self.tracked_objects[object]["rgb_masks"].append([candidate_rgb_mask])
-                        self.tracked_objects[object]["depth_masks"].append([candidate_depth_mask])
+            #keep track of which objects were updated, if an object was not updated but should have been, we will update its belief score
+            n_preupdated_tracked_objects = len(self.tracked_objects[object]["boxes"])
+            updated = [False] * n_preupdated_tracked_objects
+            #for each candidate
+            for candidate_box, candidate_score, candidate_pcd, candidate_rgb_mask, candidate_depth_mask in zip(candidates["boxes"], candidates["scores"], candidates["pcds"], candidates["rgb_masks"], candidates["depth_masks"]):
+                #calculate the 3D IoU with all tracked objects
+                ious = [iou_3d(candidate_box, box) for box in self.tracked_objects[object]["boxes"][:n_preupdated_tracked_objects]]
+                max_iou = max(ious)
+                #If the max IoU is below the threshold, add the candidate as a new object
+                if max_iou < config["iou_3d_matching"]:
+                    self.tracked_objects[object]["boxes"].append(candidate_box)
+                    self.tracked_objects[object]["pcds"].append(candidate_pcd)
+                    self.tracked_objects[object]["rgb_masks"].append([candidate_rgb_mask])
+                    self.tracked_objects[object]["depth_masks"].append([candidate_depth_mask])
 
-                        # your existing scores (shape: torch.Size([32]))
-                        scores = self.tracked_objects[object]['scores']
+                    # your existing scores (shape: torch.Size([32]))
+                    scores = self.tracked_objects[object]['scores']
 
-                        # make it a 1-element tensor
-                        new_score = candidate_score.unsqueeze(0)   # shape: [1]
+                    # make it a 1-element tensor
+                    new_score = candidate_score.unsqueeze(0)   # shape: [1]
 
-                        # concatenate along dim=0
-                        updated_scores = torch.cat([scores, new_score], dim=0)  # shape: [33]
+                    # concatenate along dim=0
+                    updated_scores = torch.cat([scores, new_score], dim=0)  # shape: [33]
 
-                        # store it back
-                        self.tracked_objects[object]['scores'] = updated_scores
-                        previous_names = self.tracked_objects[object]["names"][-1]
-                        next_idx = int(previous_names.split("_")[-1]) + 1
-                        self.tracked_objects[object]["names"].append(f"{object}_{next_idx}")
+                    # store it back
+                    self.tracked_objects[object]['scores'] = updated_scores
+                    previous_names = self.tracked_objects[object]["names"][-1]
+                    next_idx = int(previous_names.split("_")[-1]) + 1
+                    self.tracked_objects[object]["names"].append(f"{object}_{next_idx}")
 
 
-                    # If the max IoU is above the threshold, update the existing object
-                    else:
-                        match_idx = ious.index(max_iou)
-                        pcd = self.tracked_objects[object]["pcds"][match_idx] + candidate_pcd
-                        pcd = pcd.voxel_down_sample(voxel_size=config["voxel_size"])
-                        # Apply statistical outlier removal to denoise the point cloud
-                        if config["statistical_outlier_removal"]:
-                            pcd, ind = pcd.remove_statistical_outlier(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
-                        if config["radius_outlier_removal"]:
-                            pcd, ind = pcd.remove_radius_outlier(nb_points=config["radius_nb_points"], radius=config["radius_radius"])
-                        self.tracked_objects[object]["boxes"][match_idx] = self.tracked_objects[object]["pcds"][match_idx].get_axis_aligned_bounding_box()
-                        self.tracked_objects[object]["rgb_masks"][match_idx].append(candidate_rgb_mask)
-                        self.tracked_objects[object]["depth_masks"][match_idx].append(candidate_depth_mask)
-                        #print(f"Updating {object} with match_idx {match_idx} {len(self.tracked_objects[object]['rgb_masks'])=}")
-                        # existing belief and new observation
-                        b = self.tracked_objects[object]["scores"][match_idx]
-                        x = candidate_score
+                # If the max IoU is above the threshold, update the existing object
+                else:
+                    match_idx = ious.index(max_iou)
+                    pcd = self.tracked_objects[object]["pcds"][match_idx] + candidate_pcd
+                    pcd = pcd.voxel_down_sample(voxel_size=config["voxel_size"])
+                    # Apply statistical outlier removal to denoise the point cloud
+                    if config["statistical_outlier_removal"]:
+                        pcd, ind = pcd.remove_statistical_outlier(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
+                    if config["radius_outlier_removal"]:
+                        pcd, ind = pcd.remove_radius_outlier(nb_points=config["radius_nb_points"], radius=config["radius_radius"])
+                    self.tracked_objects[object]["boxes"][match_idx] = self.tracked_objects[object]["pcds"][match_idx].get_axis_aligned_bounding_box()
+                    self.tracked_objects[object]["rgb_masks"][match_idx].append(candidate_rgb_mask)
+                    self.tracked_objects[object]["depth_masks"][match_idx].append(candidate_depth_mask)
+                    #print(f"Updating {object} with match_idx {match_idx} {len(self.tracked_objects[object]['rgb_masks'])=}")
+                    # existing belief and new observation
+                    b = self.tracked_objects[object]["scores"][match_idx]
+                    x = candidate_score
 
-                        # weighted‐power update
-                        num = b * x
-                        den = num + ((1-b) * (1-x))
+                    # weighted‐power update
+                    num = b * x
+                    den = num + ((1-b) * (1-x))
 
-                        self.tracked_objects[object]["scores"][match_idx] = num / den
-                        updated[match_idx] = True
-                # If the object was not updated but it should've been, we need to update its belief score
-                for i, (tracked_score, pcd, obj_updated) in enumerate(zip(self.tracked_objects[object]["scores"], self.tracked_objects[object]["pcds"], updated)):
-                    if obj_updated:
-                        continue
-                    centroid = pcd.get_center()
+                    self.tracked_objects[object]["scores"][match_idx] = num / den
+                    updated[match_idx] = True
+            # If the object was not updated but it should've been, we need to update its belief score
+            for i, (tracked_score, pcd, obj_updated) in enumerate(zip(self.tracked_objects[object]["scores"], self.tracked_objects[object]["pcds"], updated)):
+                if obj_updated:
+                    continue
+                centroid = pcd.get_center()
 
-                    if not in_image(centroid, obs_pose, I):
-                       continue
-                    p_fn = config["false_negative_rate"]
+                if not in_image(centroid, obs_pose, I): #or obscured:
+                    continue
+                p_fn = config["false_negative_rate"]
 
-                    num = tracked_score * p_fn
-                    den = num + ((1-tracked_score) * (1-p_fn))
-                    new_score = num/den
+                num = tracked_score * p_fn
+                den = num + ((1-tracked_score) * (1-p_fn))
+                new_score = num/den
 
-                    self.tracked_objects[object]["scores"][i] = new_score
-        self.remove_low_belief_objects()
+                self.tracked_objects[object]["scores"][i] = new_score
 
     def remove_low_belief_objects(self):
         """
         Removes objects from the tracked_objects dictionary that have a belief score below the threshold.
         """
         for object, prediction in self.tracked_objects.items():
+
             mask = prediction["scores"] > config["belief_threshold"]
-            prediction["boxes"] = [prediction["boxes"][i] for i in range(len(mask)) if mask[i]]
-            prediction["pcds"] = [prediction["pcds"][i] for i in range(len(mask)) if mask[i]]
-            prediction["rgb_masks"] = [prediction["rgb_masks"][i] for i in range(len(mask)) if mask[i]]
-            prediction["depth_masks"] = [prediction["depth_masks"][i] for i in range(len(mask)) if mask[i]]
             prediction["scores"] = prediction["scores"][mask]
+            boxes = []
+            pcds = []
+            rgb_masks = []
+            depth_masks = []
+            names = []
+            for i, b in enumerate(mask):
+                if b:
+                    boxes.append(prediction["boxes"][i])
+                    pcds.append(prediction["pcds"][i])
+                    rgb_masks.append(prediction["rgb_masks"][i])
+                    depth_masks.append(prediction["depth_masks"][i])
+                    names.append(prediction["names"][i])
+            prediction["boxes"] = boxes
+            prediction["pcds"] = pcds
+            prediction["rgb_masks"] = rgb_masks
+            prediction["depth_masks"] = depth_masks
+            prediction["names"] = names
 
-            prediction["names"] = [prediction["names"][i] for i in range(len(mask)) if mask[i]]
-
+            self.tracked_objects[object] = prediction
     def query(self, query):
         """
         Returns the top candidate point cloud and its belief score for a given object.
