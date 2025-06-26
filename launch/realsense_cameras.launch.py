@@ -37,7 +37,7 @@ def generate_launch_description():
                         'camera_name': name,
                         'camera_namespace': 'realsense',
                         'serial_no': serial,
-                        'rgb_camera.color_profile': f'{width},{height},{fps}',
+                        'rgb_camera.color_profile': f'{width}x{height}x{fps}',
                         'enable_color': 'true',
                         'enable_depth': 'true',
                         'pointcloud.enable': pointcloud,
