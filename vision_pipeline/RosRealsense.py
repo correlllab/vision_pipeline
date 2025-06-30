@@ -4,6 +4,7 @@ import threading
 import time
 import open3d as o3d
 from cv_bridge import CvBridge
+import json
 
 import rclpy
 from rclpy.node import Node
@@ -15,7 +16,6 @@ from sensor_msgs.msg import CameraInfo, CompressedImage
 
 from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException
 from tf2_ros         import LookupException, ConnectivityException, ExtrapolationException
-
 
 import numpy as np
 import cv2
@@ -47,8 +47,13 @@ class RealSenseSubscriber(Node):
         self.latest_pose = None
         self._lock = threading.Lock()
         self.target_frame = "pelvis"
-        self.source_frame = config["camera_frames"].get(camera_name)
-        assert self.source_frame is not None, f"Camera name: {camera_name} not recognized."
+        cam_idx = -1
+        try:
+            cam_idx = config["rs_names"].index(camera_name)
+        except ValueError:
+            self.get_logger().error(f"Camera name {camera_name} not found in config.")
+            raise ValueError(f"Camera name {camera_name} not found in config {config['rs_names']=}.")
+        self.source_frame = config["rs_frames"][cam_idx]
         # TF2 buffer and listener with longer cache time
         self.tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
         self.tf_listener = TransformListener(self.tf_buffer, self)

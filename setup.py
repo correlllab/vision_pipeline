@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 from setuptools import find_packages, setup
+from glob import glob
 
 package_name = 'vision_pipeline'
 
@@ -15,6 +16,7 @@ setup(
         # include configuration file
         ('share/' + package_name, [os.path.join('vision_pipeline', 'config.json')]),
         ('share/' + package_name + '/launch', ['launch/realsense_cameras.launch.py', "launch/example_client.launch.py", "launch/vision_pipeline_rviz.launch.py"]),
+        ('share/' + package_name + '/Rviz', glob('Rviz/*.rviz')),
 
     ],
     install_requires=['setuptools', 'sensor_msgs', 'visualization_msgs', 'custom_ros_messages'],
