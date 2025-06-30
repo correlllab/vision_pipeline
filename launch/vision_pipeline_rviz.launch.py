@@ -7,7 +7,7 @@ import os
 def generate_launch_description():
     rviz_config_path = os.path.join(
         get_package_share_directory('vision_pipeline'),
-        'RVIZ',
+        'Rviz',
         'VP_RVIZ.rviz'
     )
 
@@ -19,7 +19,7 @@ def generate_launch_description():
         Node(
             package='vision_pipeline',
             executable='visionpipeline',
-            name='visionpipeline',
-            output='screen'
+            output='screen',
+            emulate_tty=True
         )
     ])

@@ -1,11 +1,9 @@
 {
-    "iou_2d_reduction": 0.3,
-    "min_2d_box_side": 0,
-    "owlv2_discard_percentile": 0.75,
+    "gemini_model": "gemini-2.5-flash-lite-preview-06-17",
+    "vlm_true_positive_rate":0.90,
+    "vlm_false_negative_rate":0.10,
 
     "min_3d_points":100,
-    "min_depth":0,
-
     "voxel_size": 0.01,
     "statistical_outlier_removal": true,
     "statistical_nb_neighbors":20,
@@ -13,16 +11,15 @@
     "radius_outlier_removal": false,
     "radius_radius": 0.8,
     "radius_nb_points": 2,
-    "iou_3d_reduction": 0.1,
 
-    "iou_3d_matching": 0.1,
-    "belief_threshold": 0.25,
+    "remove_belief_threshold": 0.25,
     "test_querys":["coke can", "wrench", "drill", "screwdriver"],
-    "false_negative_rate":0.10,
-    "sigmoid_gain": 1,
 
     "pose_expire_time": 60,
     "change_in_pose_threshold": 0.1,
+
+
+    "vis_k":10,
 
     "rs_names": ["head", "left_hand", "right_hand"],
     "rs_serials": ["_250122072330", "_838212072778", "_926522071700"],

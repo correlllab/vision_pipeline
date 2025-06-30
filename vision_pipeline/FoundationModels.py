@@ -1,6 +1,7 @@
 import torch
 from sam2.sam2_image_predictor import SAM2ImagePredictor
-from transformers import OwlViTProcessor, OwlViTForObjectDetection
+import google.genai as genai
+
 import warnings
 import matplotlib.pyplot as plt
 import cv2
@@ -21,6 +22,7 @@ dir_path = os.path.dirname(os.path.abspath(__file__))
 if dir_path not in sys.path:
     sys.path.insert(0, dir_path)
 from utils import get_points_and_colors, nms
+from API_KEYS import GEMINI_KEY
 
 
 
@@ -29,152 +31,24 @@ _config_path = os.path.join(_script_dir, 'config.json')
 fig_dir = os.path.join(_script_dir, 'figures')
 os.makedirs(fig_dir, exist_ok=True)
 os.makedirs(os.path.join(fig_dir, "SAM2"), exist_ok=True)
-os.makedirs(os.path.join(fig_dir, "OWLV2"), exist_ok=True)
+os.makedirs(os.path.join(fig_dir, "Gemini"), exist_ok=True)
 config = json.load(open(_config_path, 'r'))
 
-class OWLv2:
+
+#Class to use Gemini
+class Gemini_BB:
     def __init__(self):
-        """
-        Initializes the OWLv2 model and processor.
-        """
-        # Load the OWLv2 model and processor
-        self.processor = OwlViTProcessor.from_pretrained("google/owlvit-base-patch32")
-        self.model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32")
+        self.model = config["gemini_model"]
+        self.client = genai.Client(api_key=GEMINI_KEY)
 
-        # Set device to GPU if available, otherwise CPU
-        self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        self.device = torch.device("mps") if torch.backends.mps.is_available() else self.device
+    def process_sample(self, file_path, tool, vlm_role, model, task, bboxes: dict):
+        img = self.client.files.upload(file=file_path)
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents = [img, self.prompt_func(file_path, tool, vlm_role, model, task, bboxes)]
+        )
+        return response, response.text
 
-        # Move model to the appropriate device
-        self.model.to(self.device)
-        self.model.eval()  # set model to evaluation mode
-
-
-    def predict(self, img, querries, debug = False):
-        """
-        Parameters:
-        - img: image to produce bounding boxes in
-        - querries: list of strings whos bounding boxes we want
-        - debug: if True, prints debug information
-        Returns:
-        - out_dict: dictionary containing a list of bounding boxes and a list of scores for each query
-        """
-        #Preprocess inputs
-        inputs = self.processor(text=querries, images=img, return_tensors="pt")
-        inputs.to(self.device)
-
-        #model forward pass
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-        target_sizes = torch.tensor([img.shape[:2]])  # (height, width)
-
-        results = self.processor.post_process_grounded_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0)[0]
-
-        # Extract labels, boxes, and scores
-        label_lookup = {i: label for i, label in enumerate(querries)}
-        all_labels = results["labels"]
-        all_boxes = results["boxes"]
-        all_boxes = clip_boxes_to_image(all_boxes, img.shape[:2])
-        all_scores = results["scores"]
-        if debug:
-            temp_pred = {}
-            for i, label in enumerate(querries):
-                mask = all_labels == i
-                text_label = label_lookup[i]
-                temp_pred[text_label] = {"boxes": all_boxes[mask], "scores": all_scores[mask]}
-            display_owl(img, temp_pred, window_prefix=f"All Boxes")
-
-        keep = remove_small_boxes(all_boxes, min_size=config["min_2d_box_side"])
-        small_removed_boxes = all_boxes[keep]
-        small_removed_scores = all_scores[keep]
-        small_removed_labels = all_labels[keep]
-        if debug:
-            temp_pred = {}
-            for i, label in enumerate(querries):
-                mask = small_removed_labels == i
-                text_label = label_lookup[i]
-                temp_pred[text_label] = {"boxes": small_removed_boxes[mask], "scores": small_removed_scores[mask]}
-            display_owl(img, temp_pred, window_prefix=f"Small Boxes Removed")
-
-        #get integer to text label mapping
-        out_dict = {}
-        #for each query, get the boxes and scores and perform NMS
-        for i, label in enumerate(querries):
-            text_label = label_lookup[i]
-
-            # Filter boxes and scores for the current label
-            mask = small_removed_labels == i
-            instance_boxes = small_removed_boxes[mask]
-            instance_scores = small_removed_scores[mask]
-
-            #Do NMS for the current label
-            pruned_boxes, pruned_scores, _ = nms(instance_boxes.cpu(), instance_scores.cpu(), iou_threshold=config["iou_2d_reduction"], three_d=False)
-            pruned_boxes  = torch.stack(pruned_boxes)
-            pruned_scores = torch.stack(pruned_scores)
-
-            if debug:
-                display_owl(img, {text_label: {"boxes": pruned_boxes, "scores": pruned_scores}}, window_prefix=f"Post NMS ")
-            #print(f"{pruned_boxes.shape=}, {pruned_scores.shape=}")
-
-            #Get rid of low scores
-            threshold = torch.quantile(pruned_scores, config["owlv2_discard_percentile"])
-            keep = pruned_scores > threshold
-            filtered_boxes  = pruned_boxes[keep]
-            filtered_scores = pruned_scores[keep]
-
-            # Normalize scores
-            filtered_scores = F.sigmoid(filtered_scores*config["sigmoid_gain"])
-            #mu    = filtered_scores.mean()
-            #sigma = filtered_scores.std(unbiased=False)
-            #z = (filtered_scores - mu) / sigma
-            #filtered_scores = F.softmax(z, dim=0)
-            # filtered_scores = filtered_scores / filtered_scores.sum()
-
-            # Update output dictionary
-            out_dict[text_label] = {"scores": filtered_scores, "boxes": filtered_boxes}
-
-            if debug:
-                print(f"{text_label=}")
-                print(f"    {all_labels.shape=}, {all_boxes.shape=}, {all_scores.shape=}")
-                print(f"    {small_removed_boxes.shape=}, {small_removed_scores.shape=}, {small_removed_labels.shape=}")
-                print(f"    {instance_scores.shape=}, {instance_boxes.shape=}")
-                print(f"    {pruned_boxes.shape=}, {pruned_scores.shape=}")
-                print(f"    {len(keep)=}")
-                print(f"    {filtered_scores.shape=}, {filtered_boxes.shape=}")
-                print(f"    {threshold=}")
-                print()
-                display_owl(img, {text_label: {"boxes": filtered_boxes, "scores": filtered_scores}}, window_prefix=f"Top {config['owlv2_discard_percentile']} quantile ")
-
-
-        if debug:
-            for key in out_dict:
-                print(f"{key=} {out_dict[key]['boxes'].shape=}, {out_dict[key]['scores'].shape=}")
-        return out_dict
-
-    def __str__(self):
-        return f"OWLv2: {self.model.device}"
-    def __repr__(self):
-        return self.__str__()
-def display_owl(img, predicitons, window_prefix = ""):
-    for query_object, prediction in predicitons.items():
-        display_img = img.copy()
-        for bbox, score in zip(prediction["boxes"], prediction["scores"]):
-            #bbox = prediction["box"]
-            #score = prediction["score"]
-            x_min, y_min, x_max, y_max = map(int, bbox)
-            cv2.rectangle(display_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-            cv2.putText(display_img, f"{query_object} {score:.4f}", (x_min, y_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        # Display the image with bounding boxes
-        cv2.imwrite(f"{fig_dir}/OWLV2/{window_prefix}{query_object}.png", display_img)
-        cv2.imshow(f"{window_prefix}{query_object}", display_img)
-        cv2.waitKey(1)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-def test_OWL(left_img, debug):
-    owl = OWLv2()
-    predicitons = owl.predict(left_img, config["test_querys"], debug=debug)
-    display_owl(left_img, predicitons)
-    return predicitons
 #Class to use sam2
 class SAM2_PC:
     def __init__(self,):

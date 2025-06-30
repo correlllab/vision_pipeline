@@ -12,9 +12,12 @@ import matplotlib.pyplot as plt
 
 import os
 import sys
-dir_path = os.path.dirname(os.path.abspath(__file__))
-if dir_path not in sys.path:
-    sys.path.insert(0, dir_path)
+import json 
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+if _script_dir not in sys.path:
+    sys.path.insert(0, _script_dir)
+_config_path = os.path.join(_script_dir, 'config.json')
+config = json.load(open(_config_path, 'r'))
 
 from VisionPipeline import VisionPipe
 from FoundationModels import OWLv2, SAM2_PC
@@ -152,23 +155,28 @@ class ROS_VisionPipe(VisionPipe, Node):
         with self._lock:
             if self.new_data:
                 for query in self.track_strings:
-                    pcd = self.get_pointcloud(query)
+                    candidate_set = None
+                    with self._lock:
+                        top_candidate_set = {"scores":[], "boxes":[], "pcds":[] }
+
+                        candidates = self.tracked_objects[query]
+                        values, indicies = candidates["scores"].topk(min(config["vis_k"], len(candidates["scores"])), largest=True)
+                        for i in indicies.tolist():
+                            top_candidate_set["scores"].append(candidates["scores"][i])
+                            top_candidate_set["boxes"].append(candidates["boxes"][i])
+                            top_candidate_set["pcds"].append(candidates["pcds"][i])
+                    pcd = self.get_pointcloud(top_candidate_set)
                     pc_msg = self.pcd_to_msg(pcd)
                     self.pc_publishers[query].publish(pc_msg)
 
-                    marker_msg = self.get_marker_msg(query)
+                    marker_msg = self.get_marker_msg(top_candidate_set, query)
                     self.marker_publishers[query].publish(marker_msg)
                 self.new_data = False
-    def get_pointcloud(self, query):
+    def get_pointcloud(self, candidates_set):
         #print(f"get_current_pointcloud called")
         pcd = o3d.geometry.PointCloud()
         pcds = None
-        with self._lock:
-            if query not in self.tracked_objects:
-                print(f"[ERROR] No tracked objects found for query: {query}")
-                return None
-            pcds = self.tracked_objects[query]["pcds"]
-        for p in pcds:
+        for p in candidates_set["pcds"]:
             pcd += p
         return pcd
 
@@ -200,63 +208,62 @@ class ROS_VisionPipe(VisionPipe, Node):
         msg = point_cloud2.create_cloud(header, fields, pc)
         return msg
 
-    def get_marker_msg(self, query):
+    def get_marker_msg(self, candidate_set, query):
         marker_array = MarkerArray()
         id = 0
-        with self._lock:
-            for box, score in zip(self.tracked_objects[query]["boxes"], self.tracked_objects[query]["scores"]):
-                #print(f"Processing box for query: {query}, score: {score}")
-                #input(f"{box=}, {score=}")
-                score = score.item()
-                r = 1-score
-                g = score
-                #print(type(r), type(g))
-                #input(f"{r=}, {g=}")
+        for box, score in zip(candidate_set["boxes"], candidate_set["scores"]):
+            #print(f"Processing box for query: {query}, score: {score}")
+            #input(f"{box=}, {score=}")
+            score = score.item()
+            r = 1-score
+            g = score
+            #print(type(r), type(g))
+            #input(f"{r=}, {g=}")
 
-                box_marker = Marker()
-                box_marker.header.frame_id = self.vis_frame   # or your preferred frame
-                box_marker.ns = "boxes"
-                box_marker.id = 0
-                box_marker.type = Marker.LINE_LIST
-                box_marker.action = Marker.ADD
-                box_marker.pose.orientation.w = 1.0  # No rotation
-                box_marker.scale.x = 0.01            # Line width in meters
-                box_marker.color.r = r*0.5
-                box_marker.color.g = g*0.5
-                box_marker.color.b = 0.0
-                box_marker.color.a = 0.5
-                box_marker.id = id
-                id += 1
-                #print(f"{dir(box)=}")
-                #input("Press Enter to continue...")
-                box_marker.points = box_to_points(box)
-                marker_array.markers.append(box_marker)
+            box_marker = Marker()
+            box_marker.header.frame_id = self.vis_frame   # or your preferred frame
+            box_marker.ns = "boxes"
+            box_marker.id = id
+            box_marker.type = Marker.LINE_LIST
+            box_marker.action = Marker.ADD
+            box_marker.pose.orientation.w = 1.0  # No rotation
+            box_marker.scale.x = 0.01            # Line width in meters
+            box_marker.color.r = r*0.5
+            box_marker.color.g = g*0.5
+            box_marker.color.b = 0.0
+            box_marker.color.a = 0.5
+            box_marker.id = id
+            id += 1
+            #print(f"{dir(box)=}")
+            #input("Press Enter to continue...")
+            box_marker.points = box_to_points(box)
+            marker_array.markers.append(box_marker)
 
 
-                score_marker = Marker()
-                score_marker.header.frame_id = self.vis_frame
-                score_marker.ns = "scores"
-                score_marker.id = id
-                id += 1
-                score_marker.type = Marker.TEXT_VIEW_FACING
-                score_marker.action = Marker.ADD
-                #print(f"{dir(box)=}")
-                center = box.get_center()
-                #print(f"{center=}")
-                #input("Press Enter to continue...")
+            score_marker = Marker()
+            score_marker.header.frame_id = self.vis_frame
+            score_marker.ns = "scores"
+            score_marker.id = id
+            id += 1
+            score_marker.type = Marker.TEXT_VIEW_FACING
+            score_marker.action = Marker.ADD
+            #print(f"{dir(box)=}")
+            center = box.get_center()
+            #print(f"{center=}")
+            #input("Press Enter to continue...")
 
-                score_marker.pose.position.x = center[0]
-                score_marker.pose.position.y = center[1]
-                score_marker.pose.position.z = center[2] # Slightly above the box
-                score_marker.pose.orientation.w = 1.0
-                score_marker.scale.z = 0.05  # Font size
-                score_marker.color.r = r
-                score_marker.color.g = g
-                score_marker.color.b = 0.0
-                score_marker.color.a = 1.0
-                score_marker.text = f"{query.replace(' ', '')}:{score:.2f}"
-                #print(f"{score_marker.text=}")
-                marker_array.markers.append(score_marker)
+            score_marker.pose.position.x = center[0]
+            score_marker.pose.position.y = center[1]
+            score_marker.pose.position.z = center[2] # Slightly above the box
+            score_marker.pose.orientation.w = 1.0
+            score_marker.scale.z = 0.05  # Font size
+            score_marker.color.r = r
+            score_marker.color.g = g
+            score_marker.color.b = 0.0
+            score_marker.color.a = 1.0
+            score_marker.text = f"{query.replace(' ', '')}:{score:.2f}"
+            #print(f"{score_marker.text=}")
+            marker_array.markers.append(score_marker)
         return marker_array
 
     def update(self, debug=False):
