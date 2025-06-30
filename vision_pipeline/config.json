@@ -22,5 +22,13 @@
     "sigmoid_gain": 1,
 
     "pose_expire_time": 60,
-    "change_in_pose_threshold": 0.1
+    "change_in_pose_threshold": 0.1,
+
+    "rs_names": ["head", "left_hand", "right_hand"],
+    "rs_serials": ["_250122072330", "_838212072778", "_926522071700"],
+    "rs_frames": ["head_camera_link", "left_hand_camera_link", "right_hand_camera_link"],
+    "rs_width":424,
+    "rs_height":240,
+    "rs_fps":6
+
 }
