@@ -23,9 +23,12 @@ import matplotlib.pyplot as plt
 
 import os
 import sys
-dir_path = os.path.dirname(os.path.abspath(__file__))
-if dir_path not in sys.path:
-    sys.path.insert(0, dir_path)
+
+_script_dir = os.path.dirname(os.path.realpath(__file__))
+if _script_dir not in sys.path:
+    sys.path.insert(0, _script_dir)
+_config_path = os.path.join(_script_dir, 'config.json')
+config = json.load(open(_config_path, 'r'))
 
 from FoundationModels import OWLv2, SAM2_PC
 from utils import quat_to_euler, decode_compressed_depth_image
@@ -44,7 +47,8 @@ class RealSenseSubscriber(Node):
         self.latest_pose = None
         self._lock = threading.Lock()
         self.target_frame = "pelvis"
-
+        self.source_frame = config["camera_frames"].get(camera_name)
+        assert self.source_frame is not None, f"Camera name: {camera_name} not recognized."
         # TF2 buffer and listener with longer cache time
         self.tf_buffer = Buffer(cache_time=Duration(seconds=10.0))
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -118,75 +122,31 @@ class RealSenseSubscriber(Node):
         with self._lock:
             self.latest_info = msg
 
-        # Look up pose asynchronously - don't block the callback
-        # Option 1: Use current time instead of message timestamp
-        #pose = self.lookup_pose_current_time()
-
-        # Option 2: If you need the exact timestamp, do it non-blockingly
-        pose = self.lookup_pose_async(msg.header.stamp)
+        pose = self.lookup_pose(msg.header.stamp)
 
         with self._lock:
             self.latest_pose = pose
 
-    def lookup_pose_current_time(self):
-        """Look up the current pose (most recent available)"""
-        source_frame = {
-            "head": "head_camera_link",
-            "left_hand": "left_hand_camera_link",
-            "right_hand": "right_hand_camera_link",
-        }.get(self.camera_name)
 
-        if source_frame is None:
-            self.get_logger().error(f"Unknown camera name {self.camera_name}")
-            return None
-
-        try:
-            # Use Time(0) to get the most recent transform available
-            transform = self.tf_buffer.lookup_transform(
-                self.target_frame,
-                source_frame,
-                Time()  # This gets the latest available transform
-            )
-
-            # Build 6-DoF pose
-            t = transform.transform.translation
-            q = transform.transform.rotation
-            roll, pitch, yaw = quat_to_euler(q.x, q.y, q.z, q.w)
-            return [t.x, t.y, t.z, roll, pitch, yaw]
-
-        except (LookupException, ConnectivityException, ExtrapolationException) as e:
-            self.get_logger().warn(f"TF lookup failed {source_frame}->{self.target_frame}: {e}")
-            return None
-
-    def lookup_pose_async(self, stamp_msg):
+    def lookup_pose(self, stamp_msg):
         """Alternative: Look up pose with specific timestamp but with timeout handling"""
-        source_frame = {
-            "head": "head_camera_link",
-            "left_hand": "left_hand_camera_link",
-            "right_hand": "right_hand_camera_link",
-        }.get(self.camera_name)
-
-        if source_frame is None:
-            self.get_logger().error(f"Unknown camera name {self.camera_name}")
-            return None
 
         stamp = Time.from_msg(stamp_msg)
 
         # Check if transform is available with a short timeout
         if not self.tf_buffer.can_transform(
             self.target_frame,
-            source_frame,
+            self.source_frame,
             stamp,
             Duration(seconds=0.1)  # Very short timeout
         ):
-            # Fall back to most recent transform
-            self.get_logger().debug(f"Historical TF not available, using latest for {source_frame}")
-            return self.lookup_pose_current_time()
+            self.get_logger().debug(f"Historical TF not available, using latest for {self.source_frame}->{self.target_frame}")
+            return None
 
         try:
             transform = self.tf_buffer.lookup_transform(
                 self.target_frame,
-                source_frame,
+                self.source_frame,
                 stamp
             )
 
@@ -197,9 +157,9 @@ class RealSenseSubscriber(Node):
             return [t.x, t.y, t.z, roll, pitch, yaw]
 
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
-            self.get_logger().warn(f"TF lookup failed {source_frame}->{self.target_frame}: {e}")
+            self.get_logger().warn(f"TF lookup failed {self.source_frame}->{self.target_frame}: {e}")
             # Fall back to current time
-            return self.lookup_pose_current_time()
+            return None
 
     def get_data(self):
         rgb, depth, info, pose = None, None, None, None
