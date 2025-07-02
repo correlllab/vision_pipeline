@@ -52,7 +52,7 @@ You should return something like:
 {
   "box_2d": [x1, y1, x2, y2],
   "label": "Object1",
-}, 
+},
 {
   "box_2d": [x1, y1, x2, y2],
   "label": "Object1"
@@ -404,21 +404,21 @@ class SAM2_PC:
             cls = cols_cpu[i]         # (N,3)
 
             # mask out void points
-            depths = pts[:, 2]
-            valid = (depths > config["min_depth"])# & (depths < config["max_depth"])
-            if debug:
-                print(f"{valid.sum()=}")
+            # depths = pts[:, 2]
+            # valid = (depths > config["min_depth"])# & (depths < config["max_depth"])
+            # if debug:
+            #     print(f"{valid.sum()=}")
 
 
-            if valid.sum() <  config["min_3d_points"]:
-                continue
-            pts_valid = pts[valid]
-            cls_valid = cls[valid]
+            # if valid.sum() <  config["min_3d_points"]:
+            #     continue
+            # pts_valid = pts[valid]
+            # cls_valid = cls[valid]
 
             # build Open3D PointCloud
             pcd = o3d.geometry.PointCloud()
-            pcd.points = o3d.utility.Vector3dVector(pts_valid.numpy())
-            pcd.colors = o3d.utility.Vector3dVector(cls_valid.numpy()/255)
+            pcd.points = o3d.utility.Vector3dVector(pts.numpy())
+            pcd.colors = o3d.utility.Vector3dVector(cls.numpy()/255)
             pcd = pcd.voxel_down_sample(voxel_size=config["voxel_size"])
             # Apply statistical outlier removal to denoise the point cloud
             if config["statistical_outlier_removal"]:
@@ -474,7 +474,7 @@ if __name__ == "__main__":
     cv2.imshow("RGB", rgb_img)
     cv2.imshow("Depth", depth_img)
     cv2.waitKey(0)
-    
+
 
     I = {
         "fx": intrinsics.fx,
@@ -484,7 +484,7 @@ if __name__ == "__main__":
     }
 
     print(f"\n\nTESTING GEMINI")
-    GEM = Gemini_BB() 
+    GEM = Gemini_BB()
     predictions_2d = GEM.predict(rgb_img, ["drill", "screw driver", "wrench"], debug=True)
 
     print(f"\n\nTESTING SAM")
