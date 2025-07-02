@@ -20,7 +20,6 @@ _config_path = os.path.join(_script_dir, 'config.json')
 config = json.load(open(_config_path, 'r'))
 
 from VisionPipeline import VisionPipe
-from FoundationModels import OWLv2, SAM2_PC
 from RosRealsense import RealSenseSubscriber
 from sensor_msgs.msg  import PointCloud2, PointField
 from sensor_msgs_py   import point_cloud2

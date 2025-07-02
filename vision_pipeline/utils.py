@@ -273,7 +273,7 @@ def in_image(point: np.ndarray,
     return in_x and in_y
 
 
-def nms(boxes, scores, iou_threshold, extra_data_lists=None, three_d=False):
+def my_nms(boxes, scores, iou_threshold, extra_data_lists=None, three_d=False):
     if extra_data_lists is None:
         extra_data_lists = []
     iou_func = iou_3d if three_d else iou_2d
@@ -360,3 +360,13 @@ def box_to_points(box):
         points.append(p1)
         points.append(p2)
     return points
+
+def parse_gemini_json(json_output: str):
+    # Parsing out the markdown fencing
+    lines = json_output.splitlines()
+    for i, line in enumerate(lines):
+        if line == "```json":
+            json_output = "\n".join(lines[i+1:])  # Remove everything before "```json"
+            json_output = json_output.split("```")[0]  # Remove everything after the closing "```"
+            break  # Exit the loop once "```json" is found
+    return json_output

@@ -15,7 +15,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         # include configuration file
         ('share/' + package_name, [os.path.join('vision_pipeline', 'config.json')]),
-        ('share/' + package_name + '/launch', ['launch/realsense_cameras.launch.py', "launch/example_client.launch.py", "launch/vision_pipeline_rviz.launch.py"]),
+        ('share/' + package_name + '/launch', ['launch/realsense_cameras.launch.py', "launch/example_client.launch.py", "launch/vp.launch.py"]),
         ('share/' + package_name + '/Rviz', glob('Rviz/*.rviz')),
 
     ],
@@ -31,6 +31,7 @@ setup(
             'foundationmodels = vision_pipeline.RosRealsense:TestFoundationModels',
             'visionpipeline = vision_pipeline.RosVisionPipeline:RunVisionPipe',
             'exampleclient = vision_pipeline.RosVisionPipeline:TestExampleClient',
+            'main = vision_pipeline.main:main',
         ],
     },
 )

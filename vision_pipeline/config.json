@@ -1,9 +1,15 @@
 {
-    "gemini_model": "gemini-2.5-flash-lite-preview-06-17",
-    "vlm_true_positive_rate":0.90,
+    "gemini_model": "gemini-2.5-flash",
+    "vlm_true_positive_rate":0.60,
     "vlm_false_negative_rate":0.10,
+    "gemini_max_retries":4,
 
-    "min_3d_points":100,
+
+    "owl_min_2d_box_side":0,
+    "owl_iou_2d_reduction":0.3,
+    "owlv2_discard_percentile":0.75,
+    "owlv2_sigmoid_gain":1,
+
     "voxel_size": 0.01,
     "statistical_outlier_removal": true,
     "statistical_nb_neighbors":20,
