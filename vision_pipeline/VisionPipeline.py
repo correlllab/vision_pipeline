@@ -12,7 +12,7 @@ if dir_path not in sys.path:
     sys.path.insert(0, dir_path)
 
 from utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image
-from FoundationModels import OWLv2, SAM2_PC, display_owl, display_sam2
+from FoundationModels import Gemini_BB, SAM2_PC
 _script_dir = os.path.dirname(os.path.realpath(__file__))
 _config_path = os.path.join(_script_dir, 'config.json')
 fig_dir = os.path.join(_script_dir, 'figures')
@@ -34,7 +34,7 @@ class VisionPipe:
             "names": List of strings for object names
         }
         """
-        self.owv2 = OWLv2()
+        self.BackBone = Gemini_BB()
         self.sam2 = SAM2_PC()
         self.tracked_objects = {}
         self.pose_time_tracker = ()
@@ -62,9 +62,8 @@ class VisionPipe:
         
 
         #get 2d predictions dict with lists of scores, boxes from OWLv2
-        candidates_2d = self.owv2.predict(rgb_img, querries, debug=debug)
-        if debug:
-            display_owl(rgb_img, candidates_2d)
+        candidates_2d = self.BackBone.predict(rgb_img, querries, debug=debug)
+
 
         #prepare the 3d predictions dict
         candidates_3d = {}
@@ -72,12 +71,11 @@ class VisionPipe:
         transformation_matrix = pose_to_matrix(obs_pose)
         for object, candidate in candidates_2d.items():
             #convert each set of [boxes, scores] to 3D point clouds
-            pcds, box_3d, scores, rgb_masks, depth_masks = self.sam2.predict(rgb_img, depth_img, candidate["boxes"], candidate["scores"], I, debug=debug)
+            pcds, box_3d, scores, rgb_masks, depth_masks = self.sam2.predict(rgb_img, depth_img, candidate["boxes"], candidate["scores"], I, debug=debug, query_str=object)
             pcds = [pcd.transform(transformation_matrix) for pcd in pcds]
             box_3d = [pcd.get_axis_aligned_bounding_box() for pcd in pcds]
             #print(f"{box_3d=}")
-            if debug:
-                display_sam2(pcds, box_3d, scores, window_prefix=f"{object} ")
+
 
             #populate the candidates_3d dict
             candidates_3d[object] = {"boxes": box_3d, "scores": scores, "pcds": pcds, "rgb_masks": rgb_masks, "depth_masks": depth_masks}
@@ -126,10 +124,15 @@ class VisionPipe:
             #for each candidate
             for candidate_box, candidate_score, candidate_pcd, candidate_rgb_mask, candidate_depth_mask in zip(candidates["boxes"], candidates["scores"], candidates["pcds"], candidates["rgb_masks"], candidates["depth_masks"]):
                 #calculate the 3D IoU with all tracked objects
+                #USE IQR to determine matches
                 ious = [iou_3d(candidate_box, box) for box in self.tracked_objects[object]["boxes"][:n_preupdated_tracked_objects]]
                 max_iou = max(ious)
+                q1 = np.percentile(ious, 25)
+                q3 = np.percentile(ious, 75)
+                iqr = q3 - q1
+                upper_bound = q3 + 1.5 * iqr
                 #If the max IoU is below the threshold, add the candidate as a new object
-                if max_iou < config["iou_3d_matching"]:
+                if max_iou < upper_bound:
                     self.tracked_objects[object]["boxes"].append(candidate_box)
                     self.tracked_objects[object]["pcds"].append(candidate_pcd)
                     self.tracked_objects[object]["rgb_masks"].append([candidate_rgb_mask])
@@ -197,7 +200,7 @@ class VisionPipe:
         """
         for object, prediction in self.tracked_objects.items():
 
-            mask = prediction["scores"] > config["belief_threshold"]
+            mask = prediction["scores"] > config["remove_belief_threshold"]
             prediction["scores"] = prediction["scores"][mask]
             boxes = []
             pcds = []

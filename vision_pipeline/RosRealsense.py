@@ -25,12 +25,14 @@ import os
 import sys
 
 _script_dir = os.path.dirname(os.path.realpath(__file__))
+_fig_dir = os.path.join(_script_dir, 'figures')
+os.makedirs(_fig_dir, exist_ok=True)
 if _script_dir not in sys.path:
     sys.path.insert(0, _script_dir)
 _config_path = os.path.join(_script_dir, 'config.json')
 config = json.load(open(_config_path, 'r'))
 
-from FoundationModels import OWLv2, SAM2_PC
+from FoundationModels import Gemini_BB, SAM2_PC
 from utils import quat_to_euler, decode_compressed_depth_image
 
 
@@ -201,7 +203,9 @@ def TestSubscriber(args=None):
     print(f"hello world")
     cams = ['head', 'left_hand', 'right_hand']
     subs = [RealSenseSubscriber(cam) for cam in cams]
-
+    cam_dir = os.path.join(_fig_dir, 'realsense_images')
+    os.makedirs(cam_dir, exist_ok=True)
+    i = 0
     # Create OpenCV windows
     for cam in cams:
         cv2.namedWindow(f"{cam}/RGB", cv2.WINDOW_NORMAL)
@@ -218,8 +222,21 @@ def TestSubscriber(args=None):
                     cv2.imshow(f"{sub.camera_name}/RGB", rgb)
                     cv2.imshow(f"{sub.camera_name}/Depth", depth)
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
                 break
+            if key == ord('s'):
+                save_dir = os.path.join(cam_dir, f"set_{i}")
+                os.makedirs(save_dir, exist_ok=True)
+                i += 1
+                for sub in subs:
+                    rgb = None
+                    while rgb is None:
+                        rgb, depth, info, pose = sub.get_data()
+                    rgb_path = os.path.join(save_dir, f"{sub.camera_name}_rgb.png")
+                    cv2.imwrite(rgb_path, rgb)
+                    print(f"Saved RGB image to {rgb_path}")
+
 
     except KeyboardInterrupt:
         pass
@@ -232,7 +249,7 @@ def TestSubscriber(args=None):
 def TestFoundationModels(args=None):
     rclpy.init(args=args)
     sub = RealSenseSubscriber("head")
-    OWL = OWLv2()
+    GEM = Gemini_BB()
     SAM = SAM2_PC()
     while rclpy.ok():
         rgb_img, depth_img, info, pose = sub.get_data()
@@ -255,11 +272,11 @@ def TestFoundationModels(args=None):
 
         print("RGB img shape: ", rgb_img.shape)
         print("Depth img shape: ", depth_img.shape)
-        querries = ["drill", "screw driver", "wrench"]
-        predictions_2d = OWL.predict(rgb_img, querries, debug=True)
+        querries = config["test_querys"]
+        predictions_2d = GEM.predict(rgb_img, querries, debug=True)
         for query_object, canditates in predictions_2d.items():
             #print("\n\n")
-            point_clouds, boxes, scores,  rgb_masks, depth_masks = SAM.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=True)
+            point_clouds, boxes, scores,  rgb_masks, depth_masks = SAM.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=True, query_str=query_object)
             n = 5
             fig, axes = plt.subplots(5, 2, figsize=(20, 10))
             for i in range(min(n, len(point_clouds))):
@@ -267,7 +284,7 @@ def TestFoundationModels(args=None):
                 axes[i, 1].imshow(depth_masks[i], cmap='gray')
                 axes[i, 0].set_title(f"{query_object} {i} Score:{scores[i]:.2f}")
             fig.tight_layout()
-            fig.suptitle(f"{query_object} RGB and Depth Masks")
-            plt.show(block = False)
+            fig.suptitle(f"Final {query_object} RGB and Depth Masks")
+            plt.show(block = True)
         plt.show(block = True)
     return None

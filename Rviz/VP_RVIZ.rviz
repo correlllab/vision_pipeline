@@ -29,7 +29,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: Drill PC
+    SyncSource: ""
 Visualization Manager:
   Class: ""
   Displays:
@@ -89,8 +89,7 @@ Visualization Manager:
       Enabled: true
       Name: Drill Markers
       Namespaces:
-        boxes: true
-        scores: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -293,8 +292,6 @@ Visualization Manager:
           Value: false
         R_thumb_proximal_base:
           Value: false
-        head_camera_link:
-          Value: true
         head_color_frame:
           Value: false
         head_color_optical_frame:
@@ -305,8 +302,6 @@ Visualization Manager:
           Value: false
         head_link:
           Value: false
-        imu_link:
-          Value: false
         left_ankle_pitch_link:
           Value: false
         left_ankle_roll_link:
@@ -315,8 +310,6 @@ Visualization Manager:
           Value: false
         left_elbow_roll_link:
           Value: false
-        left_hand_camera_link:
-          Value: true
         left_hand_color_frame:
           Value: false
         left_hand_color_optical_frame:
@@ -345,10 +338,6 @@ Visualization Manager:
           Value: false
         left_wrist_yaw_link:
           Value: false
-        lidar_link:
-          Value: false
-        logo_link:
-          Value: false
         pelvis:
           Value: false
         right_ankle_pitch_link:
@@ -359,8 +348,6 @@ Visualization Manager:
           Value: false
         right_elbow_roll_link:
           Value: false
-        right_hand_camera_link:
-          Value: true
         right_hand_color_frame:
           Value: false
         right_hand_color_optical_frame:
@@ -413,10 +400,6 @@ Visualization Manager:
                     right_ankle_roll_link:
                       {}
           torso_link:
-            head_camera_link:
-              {}
-            imu_link:
-              {}
             left_shoulder_pitch_link:
               left_shoulder_roll_link:
                 left_shoulder_yaw_link:
@@ -424,30 +407,7 @@ Visualization Manager:
                     left_elbow_roll_link:
                       left_wrist_pitch_link:
                         left_wrist_yaw_link:
-                          L_hand_base_link:
-                            L_index_proximal:
-                              L_index_intermediate:
-                                {}
-                            L_middle_proximal:
-                              L_middle_intermediate:
-                                {}
-                            L_pinky_proximal:
-                              L_pinky_intermediate:
-                                {}
-                            L_ring_proximal:
-                              L_ring_intermediate:
-                                {}
-                            L_thumb_proximal_base:
-                              L_thumb_proximal:
-                                L_thumb_intermediate:
-                                  L_thumb_distal:
-                                    {}
-                          left_hand_camera_link:
-                            {}
-            lidar_link:
-              {}
-            logo_link:
-              {}
+                          {}
             right_shoulder_pitch_link:
               right_shoulder_roll_link:
                 right_shoulder_yaw_link:
@@ -455,26 +415,7 @@ Visualization Manager:
                     right_elbow_roll_link:
                       right_wrist_pitch_link:
                         right_wrist_yaw_link:
-                          R_hand_base_link:
-                            R_index_proximal:
-                              R_index_intermediate:
-                                {}
-                            R_middle_proximal:
-                              R_middle_intermediate:
-                                {}
-                            R_pinky_proximal:
-                              R_pinky_intermediate:
-                                {}
-                            R_ring_proximal:
-                              R_ring_intermediate:
-                                {}
-                            R_thumb_proximal_base:
-                              R_thumb_proximal:
-                                R_thumb_intermediate:
-                                  R_thumb_distal:
-                                    {}
-                          right_hand_camera_link:
-                            {}
+                          {}
       Update Interval: 0
       Value: true
     - Class: rviz_default_plugins/Image
@@ -603,7 +544,7 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 1687
-  X: 1753
+  X: 66
   Y: 32
   head cam:
     collapsed: false
