@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 import os
 import sys
-import json 
+import json
 _script_dir = os.path.dirname(os.path.abspath(__file__))
 if _script_dir not in sys.path:
     sys.path.insert(0, _script_dir)
@@ -23,10 +23,11 @@ from VisionPipeline import VisionPipe
 from RosRealsense import RealSenseSubscriber
 from sensor_msgs.msg  import PointCloud2, PointField
 from sensor_msgs_py   import point_cloud2
-from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import Header
+
+from visualization_msgs.msg import Marker, MarkerArray
 from custom_ros_messages.srv import Query, UpdateTrackedObject
-from utils import box_to_points
+from utils import box_to_points, pcd_to_msg
 from rclpy.time import Time
 
 
@@ -100,7 +101,8 @@ class ROS_VisionPipe(VisionPipe, Node):
     def query_tracked_objects_callback(self, request, response):
         #print(f"Querying tracked objects for: {request.query}")
         with self._lock:
-            #print("Acquired lock for querying tracked objects.")
+            print("Acquired lock for querying tracked objects.")
+            print(f"{request.query=} {request.query not in self.tracked_objects=}")
             if request.query not in self.tracked_objects:
                 response.cloud = PointCloud2()
                 response.result = False
@@ -108,7 +110,7 @@ class ROS_VisionPipe(VisionPipe, Node):
                 return response
 
             top_pcd, score = self.query(request.query)
-            response.cloud = self.pcd_to_msg(top_pcd)
+            response.cloud = pcd_to_msg(top_pcd, self.vis_frame)
             response.score = float(score.item())
             response.result = True
             response.message = f"Tracked objects found for query: {request.query} with score {score:.2f}"
@@ -153,19 +155,18 @@ class ROS_VisionPipe(VisionPipe, Node):
     def publish_viz(self):
         with self._lock:
             if self.new_data:
-                for query in self.track_strings:
+                for query in self.tracked_objects:
                     candidate_set = None
-                    with self._lock:
-                        top_candidate_set = {"scores":[], "boxes":[], "pcds":[] }
+                    top_candidate_set = {"scores":[], "boxes":[], "pcds":[] }
 
-                        candidates = self.tracked_objects[query]
-                        values, indicies = candidates["scores"].topk(min(config["vis_k"], len(candidates["scores"])), largest=True)
-                        for i in indicies.tolist():
-                            top_candidate_set["scores"].append(candidates["scores"][i])
-                            top_candidate_set["boxes"].append(candidates["boxes"][i])
-                            top_candidate_set["pcds"].append(candidates["pcds"][i])
+                    candidates = self.tracked_objects[query]
+                    values, indicies = candidates["scores"].topk(min(config["vis_k"], len(candidates["scores"])), largest=True)
+                    for i in indicies.tolist():
+                        top_candidate_set["scores"].append(candidates["scores"][i])
+                        top_candidate_set["boxes"].append(candidates["boxes"][i])
+                        top_candidate_set["pcds"].append(candidates["pcds"][i])
                     pcd = self.get_pointcloud(top_candidate_set)
-                    pc_msg = self.pcd_to_msg(pcd)
+                    pc_msg = pcd_to_msg(pcd, self.vis_frame)
                     self.pc_publishers[query].publish(pc_msg)
 
                     marker_msg = self.get_marker_msg(top_candidate_set, query)
@@ -179,33 +180,7 @@ class ROS_VisionPipe(VisionPipe, Node):
             pcd += p
         return pcd
 
-    def pcd_to_msg(self, pcd):
-        points = np.asarray(pcd.points)
-        colors = np.asarray(pcd.colors)
-        rgb = (colors * 255).astype(np.uint8)
-        points = np.hstack([points, rgb])
-        header = Header()
-        header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = self.vis_frame
 
-        fields = []
-        for name, offset in zip(['x', 'y', 'z', 'rgb'], [0, 4, 8, 12]):
-            f = PointField()
-            f.name = name
-            f.offset = offset
-            f.datatype = PointField.FLOAT32
-            f.count = 1
-            fields.append(f)
-        # Convert rgb from uint8 to packed float
-        rgb_float = (
-            (points[:, 3].astype(np.uint32) << 16) |
-            (points[:, 4].astype(np.uint32) << 8) |
-            (points[:, 5].astype(np.uint32))
-        ).view(np.float32)
-        pc = np.column_stack((points[:, :3], rgb_float))
-
-        msg = point_cloud2.create_cloud(header, fields, pc)
-        return msg
 
     def get_marker_msg(self, candidate_set, query):
         marker_array = MarkerArray()

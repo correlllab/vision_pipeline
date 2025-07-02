@@ -59,7 +59,7 @@ class VisionPipe:
         #print(f"Pose distances: {pose_distances}")
         if len(pose_distances) > 0 and min(pose_distances) < config["change_in_pose_threshold"] and self.update_count > 0:
             return False, "too close to previous update"
-        
+
 
         #get 2d predictions dict with lists of scores, boxes from OWLv2
         candidates_2d = self.BackBone.predict(rgb_img, querries, debug=debug)
@@ -186,7 +186,7 @@ class VisionPipe:
 
                 if not in_image(centroid, obs_pose, I): #or obscured:
                     continue
-                p_fn = config["false_negative_rate"]
+                p_fn = config["vlm_false_negative_rate"]
 
                 num = tracked_score * p_fn
                 den = num + ((1-tracked_score) * (1-p_fn))

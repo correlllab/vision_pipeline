@@ -2,7 +2,7 @@
 xhost +local:root
 
 docker run --rm -it \
-  -v /home/max/vp_ws/src/vision_pipeline:/ros2_ws/src/vision_pipeline \
+  -v /home/humanoid/vp_ws/src/vision_pipeline:/ros2_ws/src/vision_pipeline \
   --gpus all \
   --shm-size=1g \
   --network host \

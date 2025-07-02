@@ -18,7 +18,7 @@ def generate_launch_description():
         ),
         Node(
             package='vision_pipeline',
-            executable='visionpipeline',
+            executable='vp',
             output='screen',
             emulate_tty=True
         )

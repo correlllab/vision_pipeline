@@ -29,7 +29,7 @@ setup(
         'console_scripts': [
             'camera = vision_pipeline.RosRealsense:TestSubscriber',
             'foundationmodels = vision_pipeline.RosRealsense:TestFoundationModels',
-            'visionpipeline = vision_pipeline.RosVisionPipeline:RunVisionPipe',
+            'vp = vision_pipeline.RosVisionPipeline:RunVisionPipe',
             'exampleclient = vision_pipeline.RosVisionPipeline:TestExampleClient',
             'main = vision_pipeline.main:main',
         ],
