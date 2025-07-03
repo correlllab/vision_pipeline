@@ -1,5 +1,5 @@
 {
-    "gemini_model": "gemini-2.5-flash",
+    "gemini_model": "gemini-2.5-flash-lite-preview-06-17",
     "vlm_true_positive_rate":0.60,
     "vlm_false_negative_rate":0.10,
     "gemini_max_retries":4,
@@ -9,6 +9,12 @@
     "owl_iou_2d_reduction":0.3,
     "owlv2_discard_percentile":0.75,
     "owlv2_sigmoid_gain":1,
+
+
+    "backbone": "owl",
+
+    "min_depth": 0.0,
+    "min_3d_points":20,
 
     "voxel_size": 0.01,
     "statistical_outlier_removal": true,
@@ -21,7 +27,7 @@
     "remove_belief_threshold": 0.25,
     "test_querys":["coke can", "wrench", "drill", "screwdriver"],
 
-    "pose_expire_time": 60,
+    "pose_expire_time": 10,
     "change_in_pose_threshold": 0.1,
 
 

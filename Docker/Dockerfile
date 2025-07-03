@@ -58,7 +58,6 @@ WORKDIR /opt/sam2
 RUN git clone https://github.com/facebookresearch/sam2.git . && \
     pip3 install --no-cache-dir -e .
 WORKDIR /ros2_ws
-COPY ./src/custom_ros_messages /ros2_ws/src/custom_ros_messages
 
 
 # Set CycloneDDS as RMW implementation
@@ -80,6 +79,10 @@ RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \
     echo 'fi' >> /ros_entrypoint.sh && \
     echo 'exec "$@"' >> /ros_entrypoint.sh && \
     chmod +x /ros_entrypoint.sh
+
+RUN sudo apt update
+RUN sudo apt install --only-upgrade ros-humble-geometry-msgs
+
 
 ENTRYPOINT ["/ros_entrypoint.sh"]
 CMD ["bash"]

@@ -13,22 +13,36 @@ import matplotlib.pyplot as plt
 import os
 import sys
 import json
-_script_dir = os.path.dirname(os.path.abspath(__file__))
-if _script_dir not in sys.path:
-    sys.path.insert(0, _script_dir)
-_config_path = os.path.join(_script_dir, 'config.json')
-config = json.load(open(_config_path, 'r'))
 
-from VisionPipeline import VisionPipe
-from RosRealsense import RealSenseSubscriber
 from sensor_msgs.msg  import PointCloud2, PointField
 from sensor_msgs_py   import point_cloud2
 from std_msgs.msg import Header
-
+from rclpy.time import Time
 from visualization_msgs.msg import Marker, MarkerArray
 from custom_ros_messages.srv import Query, UpdateTrackedObject
-from utils import box_to_points, pcd_to_msg
-from rclpy.time import Time
+
+
+"""
+Cheat Imports
+"""
+ros_dir = os.path.dirname(os.path.realpath(__file__))
+parent_dir = os.path.join(ros_dir, "..")
+utils_dir = os.path.join(parent_dir, "utils")
+core_dir = os.path.join(parent_dir, "core")
+fig_dir = os.path.join(parent_dir, 'figures')
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+if ros_dir not in sys.path:
+    sys.path.insert(0, ros_dir)
+if utils_dir not in sys.path:
+    sys.path.insert(0, utils_dir)
+if core_dir not in sys.path:
+    sys.path.insert(0, core_dir)
+config_path = os.path.join(parent_dir, 'config.json')
+config = json.load(open(config_path, 'r'))
+from VisionPipeline import VisionPipe
+from RosRealsense import RealSenseSubscriber
+from ros_utils import box_to_points, pcd_to_msg
 
 
 
@@ -286,7 +300,7 @@ def RunVisionPipe():
     VP = ROS_VisionPipe([head_sub, left_hand_sub, right_hand_sub])
     try:
         while rclpy.ok():
-            success = VP.update()
+            success = VP.update(debug=False)
             out_str = ""
             for cam_name, result, msg in success:
                 if result:

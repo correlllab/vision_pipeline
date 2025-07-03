@@ -6,14 +6,24 @@ from custom_ros_messages.action import DualArm
 from geometry_msgs.msg import Pose
 from scipy.spatial.transform import Rotation as R
 import time
-from pynput import keyboard
 
 import os
 import sys
-_script_dir = os.path.dirname(os.path.abspath(__file__))
-if _script_dir not in sys.path:
-    sys.path.insert(0, _script_dir)
-from utils import msg_to_pcd
+ros_dir = os.path.dirname(os.path.realpath(__file__))
+parent_dir = os.path.join(ros_dir, "..")
+utils_dir = os.path.join(parent_dir, "utils")
+core_dir = os.path.join(parent_dir, "core")
+fig_dir = os.path.join(parent_dir, 'figures')
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+if ros_dir not in sys.path:
+    sys.path.insert(0, ros_dir)
+if utils_dir not in sys.path:
+    sys.path.insert(0, utils_dir)
+if core_dir not in sys.path:
+    sys.path.insert(0, core_dir)
+
+from ros_utils import msg_to_pcd
 
 
 def pose_array_to_message(pose_array):
@@ -42,6 +52,7 @@ class main_node(Node):
             DualArm,
             'move_dual_arm'
         )
+        self.goal_handle = None
 
     def track_object(self, obj_name):
         req = UpdateTrackedObject.Request()
@@ -60,7 +71,7 @@ class main_node(Node):
         result = future.result()
         return result
 
-    def send_goal(self, left_arr, right_arr):
+    def send_arm_goal(self, left_arr, right_arr):
         left_target = pose_array_to_message(left_arr)
         right_target = pose_array_to_message(right_arr)
 
@@ -84,29 +95,18 @@ class main_node(Node):
 
         # start a cancel listener thread
         self.get_logger().info('Goal accepted, waiting for result...')
-        self.get_logger().info('Press BACKSPACE to cancel the goal')
-        listener = keyboard.Listener(
-            on_press=self._keyboard_cancel
-        )
-        listener.start()
+
 
         # wait till finish
         future_result = self.goal_handle.get_result_async()
         rclpy.spin_until_future_complete(self, future_result)
         result = future_result.result().result
         self.get_logger().info(f'Final result: success = {result.success}')
-        # stop the cancel listener thread
-        listener.stop()
-
+        print()
     def feedback_callback(self, feedback_msg):
         feedback = feedback_msg.feedback
-        self.get_logger().info(f'Left Error: {feedback.left_error:.2f}; Right Error: {feedback.right_error:.2f}')
+        print(f'\rLeft Error: {feedback.left_error:.2f}; Right Error: {feedback.right_error:.2f} {time.time():.2f}', end="", flush=True)
 
-    def _keyboard_cancel(self, key):
-        if key == keyboard.Key.backspace:
-            if self.goal_handle is not None:
-                self.get_logger().info('Cancelling goal...')
-                self.goal_handle.cancel_goal_async()
 
 def main():
     rclpy.init()
@@ -116,33 +116,64 @@ def main():
        result = node.track_object(obj)
        print(f"Tracking {obj}: {result}")
     time.sleep(3)
+    vertical_offset = 0.5
 
-    max_tries = 5
-    tries = 0
-    success = False
-    query = None
-    while success == False and tries < max_tries:
-        query = node.query_objects("drill")
-        success = query.result
-        print(f"Query status: {query.message}")
-        tries += 1
-        time.sleep(3)
-    if not success:
-        print("Failed to query tracked objects after maximum tries.")
-        return
-    print(f"Query result: {query}")
+    r_hand_goal = [0.3, -0.2, 0.2, 0, 0, 0]
+    l_hand_goal = [0.3, 0.2, 0.2, 0, 0, 0]
+    res = node.send_arm_goal(
+            l_hand_goal,
+            r_hand_goal
+        )
+    last_input = ""
+    while last_input != "q":
+        int_str_mapping = {str(i): obj for i, obj in enumerate(objects)}
+        print(int_str_mapping)
+        last_input = input("Enter the index of the object to query or 'q' to quit: ")
+        if last_input == 'q':
+            print("Exiting...")
+            return
+        goal_object = objects[int(last_input)]
+        success = False
+        max_tries = 5
+        tries = 0
+        query = None
+        while success == False and tries < max_tries:
+            query = node.query_objects(goal_object)
+            success = query.result
+            print(f"Query status: {query.message}")
+            tries += 1
+            if not success:
+                time.sleep(5)
+        if not success:
+            print("Failed to query tracked objects after maximum tries.")
+            return
+        print(f"Query result: {query.result}, message: {query.message}")
 
-    pcd = msg_to_pcd(query.cloud)
-    center = pcd.get_center()
-    print(f"Point cloud center: {center}")
+        pcd = msg_to_pcd(query.cloud)
+        center = pcd.get_center()
+        print(f"Point cloud center: {center}")
 
-    r_hand_goal = [0.3, -0.2, 0.1, 0, 0, 0]
-    l_hand_goal = [center[0], center[1], center[2]+0.1, 0, 0, 0]
-    res = node.send_goal(
-        [0.5, 0.2, 0.2, 0.0, 0.0, 0.0],
-        [0.5, -0.2, 0.2, 0.0, 0.0, 0.0]
-    )
-    print(f"Action result: {res}")
+
+        if center[1] > 0:
+            l_hand_goal = [center[0], center[1], center[2]+vertical_offset, 0, 0, 0]
+        else:
+            r_hand_goal = [center[0], center[1], center[2]+vertical_offset, 0, 0, 0]
+        res = node.send_arm_goal(
+            l_hand_goal,
+            r_hand_goal
+        )
+        print(f"Action 1 result: {res}")
+
+        if center[1] > 0:
+            l_hand_goal = [center[0], center[1], center[2]+vertical_offset, 0, 90, 0]
+        else:
+            r_hand_goal = [center[0], center[1], center[2]+vertical_offset, 0, 90, 0]
+        res = node.send_arm_goal(
+            l_hand_goal,
+            r_hand_goal
+        )
+        print(f"Action 2 result: {res}")
+
 
     node.destroy_node()
     rclpy.shutdown()
