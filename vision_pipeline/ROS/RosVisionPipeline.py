@@ -300,7 +300,7 @@ def RunVisionPipe():
     VP = ROS_VisionPipe([head_sub, left_hand_sub, right_hand_sub])
     try:
         while rclpy.ok():
-            success = VP.update(debug=False)
+            success = VP.update(debug=True)
             out_str = ""
             for cam_name, result, msg in success:
                 if result:

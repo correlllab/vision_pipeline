@@ -11,7 +11,7 @@ Panels:
         - /Left_ee_target1
         - /Right_ee_target1
       Splitter Ratio: 0.5
-    Tree Height: 960
+    Tree Height: 443
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -29,7 +29,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: ""
+    SyncSource: Drill PC
 Visualization Manager:
   Class: ""
   Displays:
@@ -89,7 +89,8 @@ Visualization Manager:
       Enabled: true
       Name: Drill Markers
       Namespaces:
-        {}
+        boxes: true
+        scores: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -135,7 +136,8 @@ Visualization Manager:
       Enabled: true
       Name: ScrewDriver Markers
       Namespaces:
-        {}
+        boxes: true
+        scores: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -181,7 +183,8 @@ Visualization Manager:
       Enabled: true
       Name: Soda Can Markers
       Namespaces:
-        {}
+        boxes: true
+        scores: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -227,7 +230,8 @@ Visualization Manager:
       Enabled: true
       Name: Wrench Markers
       Namespaces:
-        {}
+        boxes: true
+        scores: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -315,6 +319,16 @@ Visualization Manager:
         left_elbow_roll_link:
           Value: false
         left_hand_camera_link:
+          Value: true
+        left_hand_color_frame:
+          Value: true
+        left_hand_color_optical_frame:
+          Value: true
+        left_hand_depth_frame:
+          Value: true
+        left_hand_depth_optical_frame:
+          Value: true
+        left_hand_link:
           Value: true
         left_hip_pitch_link:
           Value: false
@@ -594,7 +608,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 1.3570938110351562
+      Distance: 2.870823860168457
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -609,10 +623,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.4697980582714081
+      Pitch: 1.0397981405258179
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 0.06982988119125366
+      Yaw: 5.321195125579834
     Saved: ~
 Window Geometry:
   Displays:

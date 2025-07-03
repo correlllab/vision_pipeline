@@ -116,10 +116,17 @@ def main():
        result = node.track_object(obj)
        print(f"Tracking {obj}: {result}")
     time.sleep(3)
-    vertical_offset = 0.5
+    vertical_offset = 0.3
 
-    r_hand_goal = [0.3, -0.2, 0.2, 0, 0, 0]
-    l_hand_goal = [0.3, 0.2, 0.2, 0, 0, 0]
+    r_hand_goal = [0.3, -0.2, 0.2+vertical_offset, 0, 0, 0]
+    l_hand_goal = [0.3, 0.2, 0.2+vertical_offset, 0, 0, 0]
+    res = node.send_arm_goal(
+            l_hand_goal,
+            r_hand_goal
+        )
+
+    r_hand_goal = [0.3, -0.2, 0.2+vertical_offset, 0, 90, 0]
+    l_hand_goal = [0.3, 0.2, 0.2+vertical_offset, 0, 90, 0]
     res = node.send_arm_goal(
             l_hand_goal,
             r_hand_goal
@@ -154,15 +161,6 @@ def main():
         print(f"Point cloud center: {center}")
 
 
-        if center[1] > 0:
-            l_hand_goal = [center[0], center[1], center[2]+vertical_offset, 0, 0, 0]
-        else:
-            r_hand_goal = [center[0], center[1], center[2]+vertical_offset, 0, 0, 0]
-        res = node.send_arm_goal(
-            l_hand_goal,
-            r_hand_goal
-        )
-        print(f"Action 1 result: {res}")
 
         if center[1] > 0:
             l_hand_goal = [center[0], center[1], center[2]+vertical_offset, 0, 90, 0]
@@ -172,7 +170,7 @@ def main():
             l_hand_goal,
             r_hand_goal
         )
-        print(f"Action 2 result: {res}")
+        print(f"Action result: {res}")
 
 
     node.destroy_node()
