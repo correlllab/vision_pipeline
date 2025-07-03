@@ -97,6 +97,10 @@ class SAM2_PC:
             print(f"[get_masks] rgb_img.shape = {rgb_img.shape}")
             print(f"[get_masks] depth_img.shape = {depth_img.shape}")
             print(f"[get_masks] bbox = {bbox}, type = {type(bbox)}, np.array(bbox).shape = {np.array(bbox).shape}")
+        if len(bbox) == 0:
+            if debug:
+                print("[get_masks] no boxes to process, returning empty masks")
+            return  None, None
         self.sam_predictor.set_image(rgb_img.copy())
         sam_mask = None
         sam_scores = None
@@ -158,6 +162,8 @@ class SAM2_PC:
             print(f"[predict] Received {len(bbox)} boxes, scores shape = {scores.shape}")
             print(f"[predict] query_str = {query_str!r}")
         masked_depth, masked_rgb = self.get_masks(rgb_img, depth_img, bbox, debug=debug)
+        if masked_depth is None or masked_rgb is None:
+            return [], [], torch.tensor([]), [], []
         if debug:
             print(f"[predict] masked_depth.shape = {masked_depth.shape}")
             print(f"[predict] masked_rgb.shape   = {masked_rgb.shape}")
