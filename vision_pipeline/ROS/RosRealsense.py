@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 import sys
 import threading
-import time
-import open3d as o3d
 from cv_bridge import CvBridge
 import json
 
@@ -24,16 +22,32 @@ import matplotlib.pyplot as plt
 import os
 import sys
 
-_script_dir = os.path.dirname(os.path.realpath(__file__))
-_fig_dir = os.path.join(_script_dir, 'figures')
-os.makedirs(_fig_dir, exist_ok=True)
-if _script_dir not in sys.path:
-    sys.path.insert(0, _script_dir)
-_config_path = os.path.join(_script_dir, 'config.json')
-config = json.load(open(_config_path, 'r'))
+"""
+Cheat Imports
+"""
+ros_dir = os.path.dirname(os.path.realpath(__file__))
+parent_dir = os.path.join(ros_dir, "..")
+utils_dir = os.path.join(parent_dir, "utils")
+core_dir = os.path.join(parent_dir, "core")
+fig_dir = os.path.join(parent_dir, 'figures')
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+if ros_dir not in sys.path:
+    sys.path.insert(0, ros_dir)
+if utils_dir not in sys.path:
+    sys.path.insert(0, utils_dir)
+if core_dir not in sys.path:
+    sys.path.insert(0, core_dir)
 
-from FoundationModels import Gemini_BB, SAM2_PC
-from utils import quat_to_euler, decode_compressed_depth_image
+
+config_path = os.path.join(parent_dir, 'config.json')
+config = json.load(open(config_path, 'r'))
+
+
+from SAM2 import SAM2_PC
+from BBBackBones import Gemini_BB, OWLv2
+from math_utils import quat_to_euler
+from ros_utils import decode_compressed_depth_image
 
 
 class RealSenseSubscriber(Node):
@@ -63,7 +77,7 @@ class RealSenseSubscriber(Node):
         # QoS for image topics (RELIABLE + TRANSIENT_LOCAL)
         image_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
             depth=1
         )
@@ -203,7 +217,7 @@ def TestSubscriber(args=None):
     print(f"hello world")
     cams = ['head', 'left_hand', 'right_hand']
     subs = [RealSenseSubscriber(cam) for cam in cams]
-    cam_dir = os.path.join(_fig_dir, 'realsense_images')
+    cam_dir = os.path.join(fig_dir, 'realsense_images')
     os.makedirs(cam_dir, exist_ok=True)
     i = 0
     # Create OpenCV windows
@@ -247,9 +261,12 @@ def TestSubscriber(args=None):
         cv2.destroyAllWindows()
 
 def TestFoundationModels(args=None):
+    from BBBackBones import Gemini_BB, OWLv2, display_2dCandidates
+    from SAM2 import SAM2_PC, display_3dCandidates
     rclpy.init(args=args)
     sub = RealSenseSubscriber("head")
     GEM = Gemini_BB()
+    OWL = OWLv2()
     SAM = SAM2_PC()
     while rclpy.ok():
         rgb_img, depth_img, info, pose = sub.get_data()
@@ -273,18 +290,20 @@ def TestFoundationModels(args=None):
         print("RGB img shape: ", rgb_img.shape)
         print("Depth img shape: ", depth_img.shape)
         querries = config["test_querys"]
+        predictions_2d = OWL.predict(rgb_img, querries, debug=True)
+        display_2dCandidates(rgb_img, predictions_2d, window_prefix="OWL_")
         predictions_2d = GEM.predict(rgb_img, querries, debug=True)
+        display_2dCandidates(rgb_img, predictions_2d, window_prefix="GEM_")
+        candidates_3d = {}
         for query_object, canditates in predictions_2d.items():
             #print("\n\n")
             point_clouds, boxes, scores,  rgb_masks, depth_masks = SAM.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=True, query_str=query_object)
-            n = 5
-            fig, axes = plt.subplots(5, 2, figsize=(20, 10))
-            for i in range(min(n, len(point_clouds))):
-                axes[i, 0].imshow(rgb_masks[i])
-                axes[i, 1].imshow(depth_masks[i], cmap='gray')
-                axes[i, 0].set_title(f"{query_object} {i} Score:{scores[i]:.2f}")
-            fig.tight_layout()
-            fig.suptitle(f"Final {query_object} RGB and Depth Masks")
-            plt.show(block = True)
-        plt.show(block = True)
+            candidates_3d[query_object] = {
+                "pcds": point_clouds,
+                "boxes": boxes,
+                "scores": scores,
+                "masked_rgb": rgb_masks,
+                "masked_depth": depth_masks
+            }
+        display_3dCandidates(candidates_3d, window_prefix="SAM2_")
     return None

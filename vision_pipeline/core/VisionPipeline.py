@@ -7,18 +7,32 @@ import matplotlib.pyplot as plt
 import time
 
 import sys
-dir_path = os.path.dirname(os.path.abspath(__file__))
-if dir_path not in sys.path:
-    sys.path.insert(0, dir_path)
 
-from utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image
-from FoundationModels import Gemini_BB, SAM2_PC
-_script_dir = os.path.dirname(os.path.realpath(__file__))
-_config_path = os.path.join(_script_dir, 'config.json')
-fig_dir = os.path.join(_script_dir, 'figures')
+"""
+Cheat Imports
+"""
+core_dir = os.path.dirname(os.path.realpath(__file__))
+parent_dir = os.path.join(core_dir, "..")
+utils_dir = os.path.join(parent_dir, "utils")
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+if utils_dir not in sys.path:
+    sys.path.insert(0, utils_dir)
+if core_dir not in sys.path:
+    sys.path.insert(0, core_dir)
+
+
+config_path = os.path.join(parent_dir, 'config.json')
+config = json.load(open(config_path, 'r'))
+
+fig_dir = os.path.join(parent_dir, 'figures')
 os.makedirs(fig_dir, exist_ok=True)
-os.makedirs(os.path.join(fig_dir, "VP"), exist_ok=True)
-config = json.load(open(_config_path, 'r'))
+os.makedirs(os.path.join(fig_dir, "VisionPipeline"), exist_ok=True)
+
+
+from math_utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image, is_obscured
+from SAM2 import SAM2_PC
+from BBBackBones import OWLv2, Gemini_BB
 
 class VisionPipe:
     def __init__(self):
@@ -34,7 +48,12 @@ class VisionPipe:
             "names": List of strings for object names
         }
         """
-        self.BackBone = Gemini_BB()
+        if config["backbone"] == "gemini":
+            self.BackBone = Gemini_BB()
+        elif config["backbone"] == "owl":
+            self.BackBone = OWLv2()
+        else:
+            raise ValueError(f"Unknown backbone {config['backbone']=}. Please choose 'gemini' or 'owl'.")
         self.sam2 = SAM2_PC()
         self.tracked_objects = {}
         self.pose_time_tracker = ()
@@ -81,15 +100,15 @@ class VisionPipe:
             candidates_3d[object] = {"boxes": box_3d, "scores": scores, "pcds": pcds, "rgb_masks": rgb_masks, "depth_masks": depth_masks}
             if debug:
                 print(f"{object=}")
-                print(f"   {len(candidates_3d[object]['boxes'])=}, {len(candidates_3d[object]['pcds'])=}, {candidates_3d[object]['scores'].shape=}, {candidates_3d[object]['rgb_masks'].shape=}, {candidates_3d[object]['depth_masks'].shape=}")
+                print(f"   {len(candidates_3d[object]['boxes'])=}, {len(candidates_3d[object]['pcds'])=}, {len(candidates_3d[object]['scores'])=}, {len(candidates_3d[object]['rgb_masks'])=}, {len(candidates_3d[object]['depth_masks'])=}")
         #update the tracked objects with the new predictions
-        self.update_tracked_objects(candidates_3d, obs_pose, I, debug=debug)
+        self.update_tracked_objects(candidates_3d, obs_pose, I, rgb_img, depth_img, debug=debug)
         self.remove_low_belief_objects()
         self.update_count += 1
         self.pose_time_tracker.append((obs_pose, time_stamp))
         return True, "successfully updated"
 
-    def update_tracked_objects(self, candidates_3d, obs_pose, I, debug = False):
+    def update_tracked_objects(self, candidates_3d, obs_pose, I, rgb_img, depth_img, debug = False):
         """
         Given a set of 3D candidates, updates the tracked objects dictionary.
         tracked_objects[object_name] = {
@@ -184,8 +203,11 @@ class VisionPipe:
                     continue
                 centroid = pcd.get_center()
 
-                if not in_image(centroid, obs_pose, I): #or obscured:
+                if not in_image(centroid, obs_pose, I):
                     continue
+                if is_obscured(pcd, depth_img, obs_pose, I):
+                    continue
+
                 p_fn = config["vlm_false_negative_rate"]
 
                 num = tracked_score * p_fn
@@ -231,102 +253,36 @@ class VisionPipe:
             argmax1, maxval1 = max(enumerate(candiates["scores"]), key=lambda pair: pair[1])
             top_candiate = candiates["pcds"][argmax1]
             return top_candiate, maxval1
-        raise ValueError(f"Object {query} not found in tracked objects.")
+        return o3d.geometry.PointCloud(), 0.0
 
-    def vis_belief2D(self, query, blocking=True, n_rows = 10, n_cols = 5, prefix="", save_dir=None):
-        """
-        Visualizes the belief scores of a given object in a bar plot and its RGB masks in a grid.
-        """
-        if query not in self.tracked_objects:
-            raise ValueError(f"Object {query} not found in tracked objects.")
-        bundles = [(self.tracked_objects[query]["scores"][i], self.tracked_objects[query]["rgb_masks"][i]) for i in range(len(self.tracked_objects[query]["scores"]))]
-
-        scores = [bundle[0] for bundle in bundles]
-        # Create a bar plot of the scores
-        indices = np.arange(len(scores))
-        plt.figure(figsize=(8, 4))
-        plt.bar(indices, scores.cpu().numpy() if hasattr(scores, "cpu") else scores, color='skyblue')
-        plt.xlabel("Belief Rank")
-        plt.ylabel("Belief Score")
-        plt.title(f"{prefix}Belief Scores for '{query}'")
-        if save_dir is not None:
-            plt.savefig(os.path.join(save_dir, f"{prefix}_{query}_belief_scores.png"))
-
-        # Plot n_cols RGB masks in a grid of the top n_rows candidates
-        n_rows = min(n_rows, len(bundles))
-        max_imgs = max([len(rgb_masks) for _, rgb_masks in bundles[:n_rows]])
-        n_cols = min(n_cols, max_imgs)
-        n_cols = max(n_cols, 2)  # Ensure at least one column
-        #print(f"Visualizing {query} with {n_rows} rows and {n_cols} columns of images.")
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(19,12))
-        fig.suptitle(f"{prefix}Belief Scores for '{query}'", fontsize=16)
-        for i, (score, rgb_masks)in enumerate(bundles[:n_rows]):
-            axes[i, 0].set_title(f"{query} {i} Score: {score:.2f}")
-            for j in range(min(len(rgb_masks), n_cols)):
-                axes[i, j].imshow(rgb_masks[j])
-                axes[i, j].axis('off')
-        fig.tight_layout()
-        if save_dir is not None:
-            plt.savefig(os.path.join(save_dir, f"{prefix}_{query}_belief_views.png"))
-        plt.show(block=blocking)
-        #plt.pause(0.1)
-
-
-def test_VP(display2d=True):
-    import pyrealsense2 as rs
-
-    pipeline = rs.pipeline()
-    cfg = rs.config()
-    profile = pipeline.start(cfg)
-
-    sensor = profile.get_device().first_depth_sensor()
-    depth_scale = sensor.get_depth_scale()
-
-    align = rs.align(rs.stream.color)
-
-    video_prof = profile.get_stream(rs.stream.color).as_video_stream_profile()
-    intrinsics = video_prof.get_intrinsics()
-
-
-
-    vp = VisionPipe()
-    for i in range(10):
-        frames = pipeline.wait_for_frames()
-        aligned = align.process(frames)
-
-        color_frame = aligned.get_color_frame()
-        rgb_img = np.asanyarray(color_frame.get_data())
-
-
-        depth_frame = aligned.get_depth_frame()
-        depth_img = np.asanyarray(depth_frame.get_data()).astype(np.float32)
-        depth_img *= depth_scale
-
-
-        I = {
-            "fx": intrinsics.fx,
-            "fy": intrinsics.fy,
-            "cx": intrinsics.ppx,
-            "cy": intrinsics.ppy,
-            "width": rgb_img.shape[1],
-            "height": rgb_img.shape[0],
-        }
-
-        print(f"Frame {i}:")
-        #print(f"   {rgb_img.shape=}, {depth_img.shape=}, {I=}")
-        predictions = vp.update(rgb_img, depth_img, config["test_querys"], I, [0.0]*6)
-        if display2d:
-            vp.vis_belief2D(query=config["test_querys"][0], blocking=True, prefix=f"T={i}", save_dir=os.path.join(fig_dir, "VP"))
-
-        for object, prediction in predictions.items():
-            print(f"{object=}")
-            print(f"   {len(prediction['boxes'])=}, {len(prediction['pcds'])=}, {prediction['scores'].shape=}")
-        print(f"\n\n")
-    if display2d:
-        vp.vis_belief2D(query=config["test_querys"][0], blocking=True, prefix= "Final",save_dir=os.path.join(fig_dir, "VP"))
 
 
 
 if __name__ == "__main__":
-    print(f"\n\nTESTING VP")
-    test_VP()
+    import cv2
+    from SAM2 import display_3dCandidates
+    vp = VisionPipe()
+    rgb_img = cv2.imread("./ExampleImages/MushroomRGB.jpeg")
+    depth_img = cv2.imread("./ExampleImages/MushroomDepth.png")
+    depth_img = cv2.cvtColor(depth_img, cv2.COLOR_BGR2GRAY)
+    center_x = rgb_img.shape[1] // 2
+    center_y = rgb_img.shape[0] // 2
+    intrinsics = {"fx": 500, "fy": 500, "cx": center_x, "cy": center_y, 'width': rgb_img.shape[1], "height":rgb_img.shape[0]}
+    obs_pose = [0, 0, 0, 0, 0, 0]  # Example pose
+    queries = ["mushroom", "bottle", "cat"]
+    success, message = vp.update(rgb_img, depth_img, queries, intrinsics, obs_pose, time_stamp=time.time(), debug=True)
+    print(f"Update success: {success}, message: {message}")
+
+    candidates_3d = {}
+    queries.append("ghost")
+    for q in queries:
+        pcd, score = vp.query(q)
+        bbox = pcd.get_axis_aligned_bounding_box()
+        candidates_3d[q] = {
+            "boxes": [bbox],
+            "scores": torch.tensor([score]),
+            "pcds": [pcd],
+            "rgb_masks": [[]],
+            "depth_masks": [[]]
+        }
+    display_3dCandidates(candidates_3d, window_prefix="VisionPipe_")
