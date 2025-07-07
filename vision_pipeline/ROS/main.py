@@ -41,12 +41,12 @@ def pose_array_to_message(pose_array):
 class main_node(Node):
     def __init__(self):
         super().__init__('coordinator')
-        self.update_client = self.create_client(UpdateTrackedObject, 'vp_update_tracked_object')
+        """self.update_client = self.create_client(UpdateTrackedObject, 'vp_update_tracked_object')
         self.query_client = self.create_client(Query, 'vp_query_tracked_objects')
         while not self.update_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Update Service not available, waiting again...')
         while not self.query_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('Query Service not available, waiting again...')
+            self.get_logger().info('Query Service not available, waiting again...')"""
         self.action_client = ActionClient(
             self,
             DualArm,
@@ -111,20 +111,20 @@ class main_node(Node):
 def main():
     rclpy.init()
     node = main_node()
+    """
     objects = ["drill", "screwdriver", "wrench", "scissors", "soda can"]
     for obj in objects:
        result = node.track_object(obj)
        print(f"Tracking {obj}: {result}")
     time.sleep(3)
-    vertical_offset = 0.3
-
-    r_hand_goal = [0.3, -0.2, 0.2+vertical_offset, 0, 0, 0]
-    l_hand_goal = [0.3, 0.2, 0.2+vertical_offset, 0, 0, 0]
+    """
+    r_hand_goal = [0.3, -0.2, 0.5, 0, 0, 0]
+    l_hand_goal = [0.3, 0.2, 0.5, 0, 0, 0]
     res = node.send_arm_goal(
             l_hand_goal,
             r_hand_goal
         )
-
+    """
     r_hand_goal = [0.3, -0.2, 0.2+vertical_offset, 0, 90, 0]
     l_hand_goal = [0.3, 0.2, 0.2+vertical_offset, 0, 90, 0]
     res = node.send_arm_goal(
@@ -171,7 +171,6 @@ def main():
             r_hand_goal
         )
         print(f"Action result: {res}")
-
-
+    """
     node.destroy_node()
     rclpy.shutdown()

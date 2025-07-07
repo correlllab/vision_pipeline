@@ -11,7 +11,7 @@
     "owlv2_sigmoid_gain":1,
 
 
-    "backbone": "owl",
+    "backbone": "gemini",
 
     "min_depth": 0.0,
     "min_3d_points":20,
