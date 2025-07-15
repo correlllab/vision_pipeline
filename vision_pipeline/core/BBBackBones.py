@@ -6,16 +6,16 @@ and return a dictionary with the following structure:
 {
     "query_object_1": {
         "boxes": [[x1, y1, x2, y2], ...],
-        "scores": torch.tensor([score1, score2, ...])
+        "probs": torch.tensor([prob1, prob2, ...])
     },
     "query_object_2": {
         "boxes": [[x1, y1, x2, y2], ...],
-        "scores": torch.tensor([score1, score2, ...])
+        "probs": torch.tensor([prob1, prob2, ...])
     },
     ...
     "query_object_N": {
         "boxes": [[x1, y1, x2, y2], ...],
-        "scores": torch.tensor([score1, score2, ...])
+        "probs": torch.tensor([prob1, prob2, ...])
     }
 }
 
@@ -33,6 +33,9 @@ from transformers import OwlViTProcessor, OwlViTForObjectDetection
 import os
 
 import sys
+
+
+from ultralytics import YOLOWorld
 
 """
 Cheat Imports
@@ -62,10 +65,10 @@ from API_KEYS import GEMINI_KEY
 def display_2dCandidates(img, predicitons, window_prefix = ""):
     for query_object, prediction in predicitons.items():
         display_img = img.copy()
-        for bbox, score in zip(prediction["boxes"], prediction["scores"]):
+        for bbox, prob in zip(prediction["boxes"], prediction["probs"]):
             x_min, y_min, x_max, y_max = map(int, bbox)
             cv2.rectangle(display_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-            cv2.putText(display_img, f"{query_object} {score:.4f}", (x_min, y_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            cv2.putText(display_img, f"{query_object} {prob:.4f}", (x_min, y_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         # Display the image with bounding boxes
         cv2.imwrite(f"{fig_dir}/OWLV2/{window_prefix}{query_object}.png", display_img)
         cv2.imshow(f"{window_prefix}{query_object}", display_img)
@@ -203,16 +206,13 @@ Never return masks or code fencing.
                 abs_y1, abs_y2 = abs_y2, abs_y1
             bbox = [abs_x1, abs_y1, abs_x2, abs_y2]
             label = entry["label"]
-            # score = entry["score"]
             if label not in candidates_2d:
-                candidates_2d[label] = {"boxes": [bbox], "scores": [config["vlm_true_positive_rate"]]}
-                # candidates_2d[label] = {"boxes": [bbox], "scores": [score]}
+                candidates_2d[label] = {"boxes": [bbox], "probs": [config["vlm_true_positive_rate"]]}
             else:
                 candidates_2d[label]["boxes"].append(bbox)
-                candidates_2d[label]["scores"].append(config["vlm_true_positive_rate"])
-                # candidates_2d[label]["scores"].append(score)
+                candidates_2d[label]["probs"].append(config["vlm_true_positive_rate"])
         for label in candidates_2d.keys():
-            candidates_2d[label]["scores"] = torch.tensor(candidates_2d[label]["scores"], dtype=torch.float32)
+            candidates_2d[label]["probs"] = torch.tensor(candidates_2d[label]["probs"], dtype=torch.float32)
         return candidates_2d
 
 
@@ -265,13 +265,13 @@ class OWLv2:
 
         return boxes, scores, labels
 
-    def get_scores(self, scores: torch.Tensor):
+    def get_probs(self, scores: torch.Tensor):
         """
         Normalizes the scores using a sigmoid function.
         Parameters:
         - scores: torch.Tensor containing the scores
         Returns:
-        - normalized_scores: torch.Tensor containing the normalized scores
+        - probabilities: torch.Tensor containing the normalized scores
         """
         mean_score = scores.mean()
         return F.sigmoid((scores-mean_score) * config["owlv2_sigmoid_gain"])
@@ -308,7 +308,7 @@ class OWLv2:
             percentile_scores = instance_scores[keep]
 
             # Update output dictionary
-            out_dict[text_label] = {"scores": self.get_scores(percentile_scores), "boxes": percentile_boxes.tolist()}
+            out_dict[text_label] = {"probs": self.get_probs(percentile_scores), "boxes": percentile_boxes.tolist()}
 
         return out_dict
 
@@ -317,7 +317,47 @@ class OWLv2:
     def __repr__(self):
         return self.__str__()
 
+class YOLO_WORLD:
+    def __init__(self, checkpoint_file="YoloWorldL.pth", config_path=None, device="cuda:0"):
+        """
+        Initializes the YOLO World model.
+        """
+        self.model = YOLOWorld('yolov8x-worldv2.pt')
+        device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        self.model.to(device)
+        #print(f"YOLO World model loaded on {self.model.device}")
+        #print(f"{dir(self.model)=}")
 
+    def predict(self, img, queries, debug=False):
+        """
+        Parameters:
+        - img: image to produce bounding boxes in
+        - querries: list of strings whos bounding boxes we want
+        - debug: if True, prints debug information
+        Returns:
+        - out_dict: dictionary containing a list of bounding boxes and a list of probabilities for each query
+        """
+        self.model.set_classes(queries)
+        results = self.model.predict(img, show=debug)[0]
+        print(f"{dir(results.boxes)=}")
+        boxes = results.boxes.xyxy       # shape (N, 4)
+        probs = results.boxes.conf      # shape (N,)
+        cls_ids= results.boxes.cls.long()  # shape (N,)
+        out_dict = {}
+        for idx, query in enumerate(queries):
+            # mask for detections of this class
+            mask = cls_ids == idx
+
+            # convert to Python lists / tensors
+            selected_boxes  = boxes[mask].tolist()          # list of [x1,y1,x2,y2]
+            selected_probs = probs[mask]                  # tensor of shape (K,)
+
+            out_dict[query] = {
+                "boxes":  selected_boxes,
+                "probs": selected_probs
+            }
+
+        return out_dict
 if __name__ == "__main__":
     # Test the Gemini_BB and OWLv2 classes
     img = cv2.imread("./ExampleImages/RGB_Table.jpg")
@@ -327,6 +367,11 @@ if __name__ == "__main__":
     gemini_results = gemini_bb.predict(img, queries, debug=True)
     display_2dCandidates(img, gemini_results, window_prefix="Gemini_")
 
+
     owl_v2 = OWLv2()
     owl_results = owl_v2.predict(img, queries, debug=True)
     display_2dCandidates(img, owl_results, window_prefix="OWLv2_")
+
+    yolo_world = YOLO_WORLD()
+    yolo_results = yolo_world.predict(img, queries, debug=True)
+    display_2dCandidates(img, yolo_results, window_prefix="YOLOWorld_")

@@ -5,25 +5,25 @@ WORKDIR /ros2_ws
 # Remove any old/expired ROS 2 apt entry
 RUN rm /etc/apt/sources.list.d/ros2-latest.list || true
 
-# Install essentials and pip
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       curl gnupg2 lsb-release \
       iputils-ping \
       net-tools \
       build-essential gfortran libatlas-base-dev \
-      python3-pip && \
+      python3 python3-pip python-is-python3 && \
     rm -rf /var/lib/apt/lists/*
 
 
 # Re-import ROS 2 key and repo
-# RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc \
-#     | gpg --dearmor \
-#     | tee /usr/share/keyrings/ros-archive-keyring.gpg > /dev/null && \
-#     echo "deb [signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
-#       http://packages.ros.org/ros2/ubuntu \
-#       $(lsb_release -cs) main" \
-#     | tee /etc/apt/sources.list.d/ros2-latest.list
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc \
+    | gpg --dearmor \
+    | tee /usr/share/keyrings/ros-archive-keyring.gpg > /dev/null && \
+    echo "deb [signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+      http://packages.ros.org/ros2/ubuntu \
+      $(lsb_release -cs) main" \
+    | tee /etc/apt/sources.list.d/ros2-latest.list
 
 # Install Cyclone DDS
 RUN apt-get update && \
@@ -59,10 +59,13 @@ RUN git clone https://github.com/facebookresearch/sam2.git . && \
     pip3 install --no-cache-dir -e .
 WORKDIR /ros2_ws
 
+# Install Ultralytics + CLIP
+RUN pip install --no-cache-dir ultralytics \
+ && pip install --no-cache-dir git+https://github.com/openai/CLIP.git
 
 # Set CycloneDDS as RMW implementation
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-ENV CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"wlp129s0f0\" priority=\"default\" multicast=\"default\"/></Interfaces></General></Domain></CycloneDDS>"
+ENV CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"wlp5s0\" priority=\"default\" multicast=\"default\"/></Interfaces></General></Domain></CycloneDDS>"
 
 # Entry point script to source and conditionally build
 RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \

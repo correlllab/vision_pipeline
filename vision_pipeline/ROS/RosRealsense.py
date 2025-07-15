@@ -44,8 +44,8 @@ config_path = os.path.join(parent_dir, 'config.json')
 config = json.load(open(config_path, 'r'))
 
 
-from SAM2 import SAM2_PC
-from BBBackBones import Gemini_BB, OWLv2
+#from SAM2 import SAM2_PC
+#from BBBackBones import Gemini_BB, OWLv2
 from math_utils import quat_to_euler
 from ros_utils import decode_compressed_depth_image
 
@@ -297,11 +297,11 @@ def TestFoundationModels(args=None):
         candidates_3d = {}
         for query_object, canditates in predictions_2d.items():
             #print("\n\n")
-            point_clouds, boxes, scores,  rgb_masks, depth_masks = SAM.predict(rgb_img, depth_img, canditates["boxes"], canditates["scores"], intrinsics, debug=True, query_str=query_object)
+            point_clouds, boxes, probs,  rgb_masks, depth_masks = SAM.predict(rgb_img, depth_img, canditates["boxes"], canditates["probs"], intrinsics, debug=True, query_str=query_object)
             candidates_3d[query_object] = {
                 "pcds": point_clouds,
                 "boxes": boxes,
-                "scores": scores,
+                "probs": probs,
                 "masked_rgb": rgb_masks,
                 "masked_depth": depth_masks
             }

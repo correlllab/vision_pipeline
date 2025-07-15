@@ -41,7 +41,7 @@ class VisionPipe:
         Sets up the tracked objects dictionary to store 3D predictions.
         tracked_objects[object_name] = {
             "boxes": List of 3D bounding boxes,
-            "scores": Tensor of belief scores,
+            "probs": Tensor of belief probs,
             "pcds": List of point clouds,
             "rgb_masks": List of lists of RGB masks,
             "depth_masks": List of lists of depth masks
@@ -64,7 +64,7 @@ class VisionPipe:
         Generates a set of 3D predictions and then updates the tracked objects based on the new observations.
         candidates_3d[object_name] = {
             "boxes": List of 3D bounding boxes,
-            "scores": Tensor of belief scores,
+            "probs": Tensor of belief probs,
             "pcds": List of point clouds,
             "rgb_masks": List of RGB masks,
             "depth_masks": List of depth masks
@@ -80,7 +80,7 @@ class VisionPipe:
             return False, "too close to previous update"
 
 
-        #get 2d predictions dict with lists of scores, boxes from OWLv2
+        #get 2d predictions dict with lists of probabilities, boxes from OWLv2
         candidates_2d = self.BackBone.predict(rgb_img, querries, debug=debug)
 
 
@@ -89,18 +89,18 @@ class VisionPipe:
         #Will need to transform points according to robot pose
         transformation_matrix = pose_to_matrix(obs_pose)
         for object, candidate in candidates_2d.items():
-            #convert each set of [boxes, scores] to 3D point clouds
-            pcds, box_3d, scores, rgb_masks, depth_masks = self.sam2.predict(rgb_img, depth_img, candidate["boxes"], candidate["scores"], I, debug=debug, query_str=object)
+            #convert each set of [boxes, probs] to 3D point clouds
+            pcds, box_3d, probs, rgb_masks, depth_masks = self.sam2.predict(rgb_img, depth_img, candidate["boxes"], candidate["probs"], I, debug=debug, query_str=object)
             pcds = [pcd.transform(transformation_matrix) for pcd in pcds]
             box_3d = [pcd.get_axis_aligned_bounding_box() for pcd in pcds]
             #print(f"{box_3d=}")
 
 
             #populate the candidates_3d dict
-            candidates_3d[object] = {"boxes": box_3d, "scores": scores, "pcds": pcds, "rgb_masks": rgb_masks, "depth_masks": depth_masks}
+            candidates_3d[object] = {"boxes": box_3d, "probs": probs, "pcds": pcds, "rgb_masks": rgb_masks, "depth_masks": depth_masks}
             if debug:
                 print(f"{object=}")
-                print(f"   {len(candidates_3d[object]['boxes'])=}, {len(candidates_3d[object]['pcds'])=}, {len(candidates_3d[object]['scores'])=}, {len(candidates_3d[object]['rgb_masks'])=}, {len(candidates_3d[object]['depth_masks'])=}")
+                print(f"   {len(candidates_3d[object]['boxes'])=}, {len(candidates_3d[object]['pcds'])=}, {len(candidates_3d[object]['probs'])=}, {len(candidates_3d[object]['rgb_masks'])=}, {len(candidates_3d[object]['depth_masks'])=}")
         #update the tracked objects with the new predictions
         self.update_tracked_objects(candidates_3d, obs_pose, I, rgb_img, depth_img, debug=debug)
         self.remove_low_belief_objects()
@@ -113,7 +113,7 @@ class VisionPipe:
         Given a set of 3D candidates, updates the tracked objects dictionary.
         tracked_objects[object_name] = {
             "boxes": List of 3D bounding boxes,
-            "scores": Tensor of belief scores,
+            "probs": Tensor of belief probs,
             "pcds": List of point clouds,
             "rgb_masks": List of lists of RGB masks,
             "depth_masks": List of lists of depth masks
@@ -121,7 +121,7 @@ class VisionPipe:
         }
         candidates_3d[object_name] = {
             "boxes": List of 3D bounding boxes,
-            "scores": Tensor of belief scores,
+            "probs": Tensor of belief probs,
             "pcds": List of point clouds,
             "rgb_masks": List of RGB masks,
             "depth_masks": List of depth masks
@@ -141,7 +141,7 @@ class VisionPipe:
             n_preupdated_tracked_objects = len(self.tracked_objects[object]["boxes"])
             updated = [False] * n_preupdated_tracked_objects
             #for each candidate
-            for candidate_box, candidate_score, candidate_pcd, candidate_rgb_mask, candidate_depth_mask in zip(candidates["boxes"], candidates["scores"], candidates["pcds"], candidates["rgb_masks"], candidates["depth_masks"]):
+            for candidate_box, candidate_prob, candidate_pcd, candidate_rgb_mask, candidate_depth_mask in zip(candidates["boxes"], candidates["probs"], candidates["pcds"], candidates["rgb_masks"], candidates["depth_masks"]):
                 #calculate the 3D IoU with all tracked objects
                 #USE IQR to determine matches
                 ious = [iou_3d(candidate_box, box) for box in self.tracked_objects[object]["boxes"][:n_preupdated_tracked_objects]]
@@ -158,16 +158,16 @@ class VisionPipe:
                     self.tracked_objects[object]["depth_masks"].append([candidate_depth_mask])
 
                     # your existing scores (shape: torch.Size([32]))
-                    scores = self.tracked_objects[object]['scores']
+                    probs = self.tracked_objects[object]['probs']
 
                     # make it a 1-element tensor
-                    new_score = candidate_score.unsqueeze(0)   # shape: [1]
+                    new_prob = candidate_prob.unsqueeze(0)   # shape: [1]
 
                     # concatenate along dim=0
-                    updated_scores = torch.cat([scores, new_score], dim=0)  # shape: [33]
+                    updated_probs = torch.cat([probs, new_prob], dim=0)  # shape: [33]
 
                     # store it back
-                    self.tracked_objects[object]['scores'] = updated_scores
+                    self.tracked_objects[object]['probs'] = updated_probs
                     previous_names = self.tracked_objects[object]["names"][-1]
                     next_idx = int(previous_names.split("_")[-1]) + 1
                     self.tracked_objects[object]["names"].append(f"{object}_{next_idx}")
@@ -188,17 +188,17 @@ class VisionPipe:
                     self.tracked_objects[object]["depth_masks"][match_idx].append(candidate_depth_mask)
                     #print(f"Updating {object} with match_idx {match_idx} {len(self.tracked_objects[object]['rgb_masks'])=}")
                     # existing belief and new observation
-                    b = self.tracked_objects[object]["scores"][match_idx]
-                    x = candidate_score
+                    b = self.tracked_objects[object]["probs"][match_idx]
+                    x = candidate_prob
 
                     # weighted‐power update
                     num = b * x
                     den = num + ((1-b) * (1-x))
 
-                    self.tracked_objects[object]["scores"][match_idx] = num / den
+                    self.tracked_objects[object]["probs"][match_idx] = num / den
                     updated[match_idx] = True
             # If the object was not updated but it should've been, we need to update its belief score
-            for i, (tracked_score, pcd, obj_updated) in enumerate(zip(self.tracked_objects[object]["scores"], self.tracked_objects[object]["pcds"], updated)):
+            for i, (tracked_prob, pcd, obj_updated) in enumerate(zip(self.tracked_objects[object]["probs"], self.tracked_objects[object]["pcds"], updated)):
                 if obj_updated:
                     continue
                 centroid = pcd.get_center()
@@ -210,11 +210,11 @@ class VisionPipe:
 
                 p_fn = config["vlm_false_negative_rate"]
 
-                num = tracked_score * p_fn
-                den = num + ((1-tracked_score) * (1-p_fn))
-                new_score = num/den
+                num = tracked_prob * p_fn
+                den = num + ((1-tracked_prob) * (1-p_fn))
+                new_prob = num/den
 
-                self.tracked_objects[object]["scores"][i] = new_score
+                self.tracked_objects[object]["probs"][i] = new_prob
 
     def remove_low_belief_objects(self):
         """
@@ -222,8 +222,8 @@ class VisionPipe:
         """
         for object, prediction in self.tracked_objects.items():
 
-            mask = prediction["scores"] > config["remove_belief_threshold"]
-            prediction["scores"] = prediction["scores"][mask]
+            mask = prediction["probs"] > config["remove_belief_threshold"]
+            prediction["probs"] = prediction["probs"][mask]
             boxes = []
             pcds = []
             rgb_masks = []
@@ -250,7 +250,7 @@ class VisionPipe:
         if query in self.tracked_objects:
             candiates = self.tracked_objects[query]
             #print(f"{candiates=}")
-            argmax1, maxval1 = max(enumerate(candiates["scores"]), key=lambda pair: pair[1])
+            argmax1, maxval1 = max(enumerate(candiates["probs"]), key=lambda pair: pair[1])
             top_candiate = candiates["pcds"][argmax1]
             return top_candiate, maxval1
         return o3d.geometry.PointCloud(), 0.0
@@ -276,11 +276,11 @@ if __name__ == "__main__":
     candidates_3d = {}
     queries.append("ghost")
     for q in queries:
-        pcd, score = vp.query(q)
+        pcd, prob = vp.query(q)
         bbox = pcd.get_axis_aligned_bounding_box()
         candidates_3d[q] = {
             "boxes": [bbox],
-            "scores": torch.tensor([score]),
+            "probs": torch.tensor([prob]),
             "pcds": [pcd],
             "rgb_masks": [[]],
             "depth_masks": [[]]

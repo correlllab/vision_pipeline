@@ -2,7 +2,7 @@
 xhost +local:root
 
 docker run --rm -it \
-  -v /home/humanoid/vp_ws/src:/ros2_ws/src \
+  -v /home/max/vp_ws/src:/ros2_ws/src \
   --gpus all \
   --shm-size=1g \
   --network host \

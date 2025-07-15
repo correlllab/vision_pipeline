@@ -123,11 +123,11 @@ class ROS_VisionPipe(VisionPipe, Node):
                 response.message = f"No tracked objects found for query: {request.query}"
                 return response
 
-            top_pcd, score = self.query(request.query)
+            top_pcd, prob = self.query(request.query)
             response.cloud = pcd_to_msg(top_pcd, self.vis_frame)
-            response.score = float(score.item())
+            response.prob = float(prob.item())
             response.result = True
-            response.message = f"Tracked objects found for query: {request.query} with score {score:.2f}"
+            response.message = f"Tracked objects found for query: {request.query} with prob {prob:.2f}"
         return response
 
     def add_track_string(self, new_track_string):
@@ -171,12 +171,12 @@ class ROS_VisionPipe(VisionPipe, Node):
             if self.new_data:
                 for query in self.tracked_objects:
                     candidate_set = None
-                    top_candidate_set = {"scores":[], "boxes":[], "pcds":[] }
+                    top_candidate_set = {"probs":[], "boxes":[], "pcds":[] }
 
                     candidates = self.tracked_objects[query]
-                    values, indicies = candidates["scores"].topk(min(config["vis_k"], len(candidates["scores"])), largest=True)
+                    values, indicies = candidates["probs"].topk(min(config["vis_k"], len(candidates["probs"])), largest=True)
                     for i in indicies.tolist():
-                        top_candidate_set["scores"].append(candidates["scores"][i])
+                        top_candidate_set["probs"].append(candidates["probs"][i])
                         top_candidate_set["boxes"].append(candidates["boxes"][i])
                         top_candidate_set["pcds"].append(candidates["pcds"][i])
                     pcd = self.get_pointcloud(top_candidate_set)
@@ -199,12 +199,13 @@ class ROS_VisionPipe(VisionPipe, Node):
     def get_marker_msg(self, candidate_set, query):
         marker_array = MarkerArray()
         id = 0
-        for box, score in zip(candidate_set["boxes"], candidate_set["scores"]):
+        for box, prob in zip(candidate_set["boxes"], candidate_set["probs"]):
             #print(f"Processing box for query: {query}, score: {score}")
             #input(f"{box=}, {score=}")
-            score = score.item()
-            r = 1-score
-            g = score
+            prob = prob.item()
+            r = 1-prob
+            g = prob
+            
             #print(type(r), type(g))
             #input(f"{r=}, {g=}")
 
@@ -228,30 +229,30 @@ class ROS_VisionPipe(VisionPipe, Node):
             marker_array.markers.append(box_marker)
 
 
-            score_marker = Marker()
-            score_marker.header.frame_id = self.vis_frame
-            score_marker.ns = "scores"
-            score_marker.id = id
+            prob_marker = Marker()
+            prob_marker.header.frame_id = self.vis_frame
+            prob_marker.ns = "probs"
+            prob_marker.id = id
             id += 1
-            score_marker.type = Marker.TEXT_VIEW_FACING
-            score_marker.action = Marker.ADD
+            prob_marker.type = Marker.TEXT_VIEW_FACING
+            prob_marker.action = Marker.ADD
             #print(f"{dir(box)=}")
             center = box.get_center()
             #print(f"{center=}")
             #input("Press Enter to continue...")
 
-            score_marker.pose.position.x = center[0]
-            score_marker.pose.position.y = center[1]
-            score_marker.pose.position.z = center[2] # Slightly above the box
-            score_marker.pose.orientation.w = 1.0
-            score_marker.scale.z = 0.05  # Font size
-            score_marker.color.r = r
-            score_marker.color.g = g
-            score_marker.color.b = 0.0
-            score_marker.color.a = 1.0
-            score_marker.text = f"{query.replace(' ', '')}:{score:.2f}"
+            prob_marker.pose.position.x = center[0]
+            prob_marker.pose.position.y = center[1]
+            prob_marker.pose.position.z = center[2] # Slightly above the box
+            prob_marker.pose.orientation.w = 1.0
+            prob_marker.scale.z = 0.05  # Font size
+            prob_marker.color.r = r
+            prob_marker.color.g = g
+            prob_marker.color.b = 0.0
+            prob_marker.color.a = 1.0
+            prob_marker.text = f"{query.replace(' ', '')}:{prob:.2f}"
             #print(f"{score_marker.text=}")
-            marker_array.markers.append(score_marker)
+            marker_array.markers.append(prob_marker)
         return marker_array
 
     def update(self, debug=False):

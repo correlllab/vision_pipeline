@@ -143,7 +143,7 @@ class SAM2_PC:
         return pcd, bbox
 
 
-    def predict(self, rgb_img, depth_img, bbox, scores, intrinsics, debug = False, query_str=""):
+    def predict(self, rgb_img, depth_img, bbox, probs, intrinsics, debug = False, query_str=""):
         """
         Predicts 3D point clouds from RGB and depth images and bounding boxes using SAM2.
         Cleans up the point clouds and applies NMS.
@@ -156,10 +156,10 @@ class SAM2_PC:
         Returns:
         - reduced_pcds: List of reduced point clouds
         - reduced_bounding_boxes_3d: List of reduced 3D bounding boxes
-        - reduced_scores: List of reduced scores
+        - reduced_probs: List of reduced scores
         """
         if debug:
-            print(f"[predict] Received {len(bbox)} boxes, scores shape = {scores.shape}")
+            print(f"[predict] Received {len(bbox)} boxes, probs shape = {probs.shape}")
             print(f"[predict] query_str = {query_str!r}")
         masked_depth, masked_rgb = self.get_masks(rgb_img, depth_img, bbox, debug=debug)
         if masked_depth is None or masked_rgb is None:
@@ -185,7 +185,7 @@ class SAM2_PC:
         bounding_boxes_3d = []
         new_masked_rgb = []
         new_masked_depth = []
-        new_scores = []
+        new_probs = []
 
         pts_cpu   = points.detach().cpu()
         cols_cpu  = colors.detach().cpu()
@@ -209,10 +209,10 @@ class SAM2_PC:
             bounding_boxes_3d.append(bbox)
             new_masked_rgb.append(masked_rgb[i])
             new_masked_depth.append(masked_depth[i])
-            new_scores.append(scores[i])
+            new_probs.append(probs[i])
 
-        new_scores = torch.tensor(new_scores)
-        return pcds, bounding_boxes_3d, new_scores, masked_rgb, masked_depth
+        new_probs = torch.tensor(new_probs)
+        return pcds, bounding_boxes_3d, new_probs, masked_rgb, masked_depth
     def __str__(self):
         return f"SAM2: {self.sam_predictor.model.device}"
     def __repr__(self):
@@ -228,12 +228,12 @@ def display_3dCandidates(predicitons, window_prefix = ""):
     for obj in predicitons:
         pcds = predicitons[obj]["pcds"]
         bboxes = predicitons[obj]["boxes"]
-        scores = predicitons[obj]["scores"]
+        probs = predicitons[obj]["probs"]
 
         for i, pcd in enumerate(pcds):
             vis.add_geometry(f"{obj}_pcd_{i}", pcd)
             vis.add_geometry(f"{obj}_bbox_{i}", bboxes[i])
-            vis.add_3d_label(pcd.get_center(), f"{obj} {scores[i]:.2f}")
+            vis.add_3d_label(pcd.get_center(), f"{obj} {probs[i]:.2f}")
     vis.reset_camera_to_default()
     app.add_window(vis)
     app.run()
@@ -248,13 +248,13 @@ if __name__ == "__main__":
     center_y = rgb_img.shape[0] // 2
     intrinsics = {"fx": 500, "fy": 500, "cx": center_x, "cy": center_y}  # Example intrinsics
 
-    from BBBackBones import OWLv2, display_2dCandidates
-    owl_v2 = OWLv2()
+    from BBBackBones import OWLv2, YOLO_WORLD, display_2dCandidates
+    bb = YOLO_WORLD()
     queries = ["mushroom"]
-    owl_results= owl_v2.predict(rgb_img, queries, debug=False)
-    display_2dCandidates(rgb_img, owl_results, window_prefix="OWL_")
-    print(f"{len(owl_results['mushroom']['boxes'])=}, {len(owl_results['mushroom']['scores'])=}")
+    bb_results = bb.predict(rgb_img, queries, debug=False)
+    display_2dCandidates(rgb_img, bb_results, window_prefix="BB_")
+    print(f"{len(bb_results['mushroom']['boxes'])=}, {len(bb_results['mushroom']['probs'])=}")
 
-    pcds, bboxes, scores, masked_rgb, masked_depth = sam2.predict(rgb_img, depth_img, owl_results["mushroom"]["boxes"], owl_results["mushroom"]["scores"], intrinsics, debug=True)
-    candidates_3d = {"mushroom": {"pcds": pcds, "boxes": bboxes, "scores": scores, "masked_rgb": masked_rgb, "masked_depth": masked_depth}}
+    pcds, bboxes, probs, masked_rgb, masked_depth = sam2.predict(rgb_img, depth_img, bb_results["mushroom"]["boxes"], bb_results["mushroom"]["probs"], intrinsics, debug=True)
+    candidates_3d = {"mushroom": {"pcds": pcds, "boxes": bboxes, "probs": probs, "masked_rgb": masked_rgb, "masked_depth": masked_depth}}
     display_3dCandidates(candidates_3d, window_prefix="SAM2_")
