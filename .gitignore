@@ -3,3 +3,4 @@ figures/
 *.egg-info
 API_KEYS.py
 *.pth
+*.pt
