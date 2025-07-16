@@ -13,12 +13,11 @@
 
     "backbone": "owl",
 
-    "min_depth": 0.0,
     "min_3d_points":20,
 
-    "voxel_size": 0.01,
-    "statistical_outlier_removal": true,
-    "statistical_nb_neighbors":20,
+    "voxel_size": 0.001,
+    "statistical_outlier_removal": false,
+    "statistical_nb_neighbors":100,
     "statistical_std_ratio":0.5,
     "radius_outlier_removal": false,
     "radius_radius": 0.8,
@@ -41,6 +40,8 @@
     "rs_fps":6,
 
     "camera_min_range_m":0.3,
-    "camera_max_range_m":3.0
+    "camera_max_range_m":3.0,
+
+    "debug": false
 
 }

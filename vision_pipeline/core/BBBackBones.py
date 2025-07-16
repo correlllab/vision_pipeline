@@ -180,7 +180,7 @@ Never return masks or code fencing.
         """
         Parameters:
         - img: image to produce bounding boxes in
-        - querries: list of strings whos bounding boxes we want
+        - queries: list of strings whos bounding boxes we want
         - debug: if True, prints debug information
         Returns:
         - candidates_2d: dictionary containing a list of bounding boxes
@@ -280,7 +280,7 @@ class OWLv2:
         """
         Parameters:
         - img: image to produce bounding boxes in
-        - querries: list of strings whos bounding boxes we want
+        - queries: list of strings whos bounding boxes we want
         - debug: if True, prints debug information
         Returns:
         - out_dict: dictionary containing a list of bounding boxes and a list of scores for each query
@@ -332,7 +332,7 @@ class YOLO_WORLD:
         """
         Parameters:
         - img: image to produce bounding boxes in
-        - querries: list of strings whos bounding boxes we want
+        - queries: list of strings whos bounding boxes we want
         - debug: if True, prints debug information
         Returns:
         - out_dict: dictionary containing a list of bounding boxes and a list of probabilities for each query

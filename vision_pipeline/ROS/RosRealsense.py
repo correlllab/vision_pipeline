@@ -289,10 +289,10 @@ def TestFoundationModels(args=None):
 
         print("RGB img shape: ", rgb_img.shape)
         print("Depth img shape: ", depth_img.shape)
-        querries = config["test_querys"]
-        predictions_2d = OWL.predict(rgb_img, querries, debug=True)
+        queries = config["test_querys"]
+        predictions_2d = OWL.predict(rgb_img, queries, debug=True)
         display_2dCandidates(rgb_img, predictions_2d, window_prefix="OWL_")
-        predictions_2d = GEM.predict(rgb_img, querries, debug=True)
+        predictions_2d = GEM.predict(rgb_img, queries, debug=True)
         display_2dCandidates(rgb_img, predictions_2d, window_prefix="GEM_")
         candidates_3d = {}
         for query_object, canditates in predictions_2d.items():

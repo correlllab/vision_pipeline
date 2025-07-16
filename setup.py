@@ -28,7 +28,7 @@ setup(
     entry_points={
         'console_scripts': [
             'camera = vision_pipeline.ROS.RosRealsense:TestSubscriber',
-            'foundationmodels = vision_pipeline.ROS.RosRealsense:TestFoundationModels',
+            'foundation_models = vision_pipeline.ROS.RosRealsense:TestFoundationModels',
             'vp = vision_pipeline.ROS.RosVisionPipeline:RunVisionPipe',
             'exampleclient = vision_pipeline.ROS.RosVisionPipeline:TestExampleClient',
             'main = vision_pipeline.ROS.main:main',

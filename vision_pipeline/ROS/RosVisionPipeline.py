@@ -302,7 +302,7 @@ def RunVisionPipe():
     VP = ROS_VisionPipe(subs)
     try:
         while rclpy.ok():
-            success = VP.update(debug=True)
+            success = VP.update(debug=config["debug"])
             out_str = ""
             for cam_name, result, msg in success:
                 if result:
@@ -359,21 +359,25 @@ def TestExampleClient(args=None):
     ec = ExampleClient()
     try:
         while rclpy.ok():
-            ats_out = ec.add_track_string("drill")
-            print(f"add_track_string response: {ats_out}\n")
-            time.sleep(1)
-            dts_out = ec.remove_track_string("drill")
-            print(f"remove_track_string response: {dts_out}\n")
-            time.sleep(1)
-            ats_out = ec.add_track_string("drill")
-            print(f"add_track_string response: {ats_out}\n")
-            for i in range(5):
-                time.sleep(1)
-                print(f"\n\nQuerying tracked objects for 'drill' ({i+1}/5)...")
-                q_out = ec.query_tracked_objects("drill")
+            action = int(input("Enter an integer for the action (1: add, 2: remove, 3: query): "))
+            if action not in [1, 2, 3]:
+                print("Invalid action. Please enter 1, 2, or 3")
+                continue
+            if action == 1:
+                track_string = input("Enter the track string to add: ")
+                ats_out = ec.add_track_string(track_string)
+                print(f"add_track_string response: {ats_out}\n")
+            elif action == 2:
+                track_string = input("Enter the track string to remove: ")
+                dts_out = ec.remove_track_string(track_string)
+                print(f"remove_track_string response: {dts_out}\n")
+            elif action == 3:
+                track_string = input("Enter the track string to query: ")
+                print(f"Querying tracked objects for '{track_string}'...")
+                q_out = ec.query_tracked_objects(track_string)
                 print(f"query_tracked_objects response: {q_out.message}\n")
-            dts_out = ec.remove_track_string("drill")
-            print(f"remove_track_string response: {dts_out}\n")
+            time.sleep(1)
+
     except KeyboardInterrupt:
         print("Shutting down...")
     finally:

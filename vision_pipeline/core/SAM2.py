@@ -38,6 +38,8 @@ fig_dir = os.path.join(parent_dir, 'figures')
 os.makedirs(fig_dir, exist_ok=True)
 os.makedirs(os.path.join(fig_dir, "SAM2"), exist_ok=True)
 
+from math_utils import pose_to_matrix
+
 
 
 def get_points_and_colors(depths, rgbs, fx, fy, cx, cy):
@@ -126,8 +128,9 @@ class SAM2_PC:
         masked_rgb = rgb_img[None, ...] * sam_mask[..., None]
         return masked_depth, masked_rgb
 
-    def get_pcd_bbox(self, pts, cls):
+    def get_pcd_bbox(self, pts, cls, transformation_matrix):
         # build Open3D PointCloud
+        print(f"\n\n[get_pcd_bbox] {len(pts)=} {len(cls)=}")
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(pts.numpy())
         pcd.colors = o3d.utility.Vector3dVector(cls.numpy()/255)
@@ -137,13 +140,17 @@ class SAM2_PC:
             pcd, ind = pcd.remove_statistical_outlier(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
         if config["radius_outlier_removal"]:
             pcd, ind = pcd.remove_radius_outlier(nb_points=config["radius_nb_points"], radius=config["radius_radius"])
+        pcd = pcd.transform(transformation_matrix)
+        print(f"[get_pcd_bbox] {pcd=}")
         bbox = pcd.get_axis_aligned_bounding_box()
+        print(f"[get_pcd_bbox] {bbox=}")
+
         bbox.color = (1.0, 0.0, 0.0)  # red
 
         return pcd, bbox
 
 
-    def predict(self, rgb_img, depth_img, bbox, probs, intrinsics, debug = False, query_str=""):
+    def predict(self, rgb_img, depth_img, bbox, probs, intrinsics, obs_pose, debug = False, query_str=""):
         """
         Predicts 3D point clouds from RGB and depth images and bounding boxes using SAM2.
         Cleans up the point clouds and applies NMS.
@@ -160,7 +167,7 @@ class SAM2_PC:
         """
         if debug:
             print(f"[predict] Received {len(bbox)} boxes, probs shape = {probs.shape}")
-            print(f"[predict] query_str = {query_str!r}")
+            print(f"[predict] query_str = {query_str}")
         masked_depth, masked_rgb = self.get_masks(rgb_img, depth_img, bbox, debug=debug)
         if masked_depth is None or masked_rgb is None:
             return [], [], torch.tensor([]), [], []
@@ -190,20 +197,21 @@ class SAM2_PC:
         pts_cpu   = points.detach().cpu()
         cols_cpu  = colors.detach().cpu()
         #for each candiate object get the point cloud unless there are too few points
+        transformation_matrix = pose_to_matrix(obs_pose)
         for i in range(B):
             pts = pts_cpu[i]          # (N,3)
             cls = cols_cpu[i]         # (N,3)
 
             # mask out void points
             depths = pts[:, 2]
-            valid = (depths > config["min_depth"])# & (depths < config["max_depth"])
+            valid = (depths > config["camera_min_range_m"]) & (depths < config["camera_max_range_m"])
             if debug:
                 print(f"{valid.sum()=}")
-            if valid.sum() <  config["min_3d_points"]:
+            if valid.sum() < config["min_3d_points"]:
                 continue
             pts = pts[valid]
             cls = cls[valid]
-            pcd, bbox = self.get_pcd_bbox(pts, cls)
+            pcd, bbox = self.get_pcd_bbox(pts, cls, transformation_matrix)
 
             pcds.append(pcd)
             bounding_boxes_3d.append(bbox)
@@ -249,12 +257,12 @@ if __name__ == "__main__":
     intrinsics = {"fx": 500, "fy": 500, "cx": center_x, "cy": center_y}  # Example intrinsics
 
     from BBBackBones import OWLv2, YOLO_WORLD, display_2dCandidates
-    bb = YOLO_WORLD()
+    bb = OWLv2()
     queries = ["mushroom"]
     bb_results = bb.predict(rgb_img, queries, debug=False)
     display_2dCandidates(rgb_img, bb_results, window_prefix="BB_")
     print(f"{len(bb_results['mushroom']['boxes'])=}, {len(bb_results['mushroom']['probs'])=}")
 
-    pcds, bboxes, probs, masked_rgb, masked_depth = sam2.predict(rgb_img, depth_img, bb_results["mushroom"]["boxes"], bb_results["mushroom"]["probs"], intrinsics, debug=True)
+    pcds, bboxes, probs, masked_rgb, masked_depth = sam2.predict(rgb_img, depth_img, bb_results["mushroom"]["boxes"], bb_results["mushroom"]["probs"], intrinsics, [0,0,0,0,0,0], debug=True)
     candidates_3d = {"mushroom": {"pcds": pcds, "boxes": bboxes, "probs": probs, "masked_rgb": masked_rgb, "masked_depth": masked_depth}}
     display_3dCandidates(candidates_3d, window_prefix="SAM2_")

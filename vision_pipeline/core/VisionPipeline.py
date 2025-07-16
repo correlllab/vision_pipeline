@@ -30,7 +30,7 @@ os.makedirs(fig_dir, exist_ok=True)
 os.makedirs(os.path.join(fig_dir, "VisionPipeline"), exist_ok=True)
 
 
-from math_utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image, is_obscured
+from math_utils import iou_3d, in_image, is_obscured
 from SAM2 import SAM2_PC
 from BBBackBones import OWLv2, Gemini_BB, YOLO_WORLD
 
@@ -61,7 +61,7 @@ class VisionPipe:
         self.pose_time_tracker = ()
         self.update_count = 0
 
-    def update(self, rgb_img, depth_img, querries, I, obs_pose, time_stamp, debug = False):
+    def update(self, rgb_img, depth_img, queries, I, obs_pose, time_stamp, debug = False):
         """
         Generates a set of 3D predictions and then updates the tracked objects based on the new observations.
         candidates_3d[object_name] = {
@@ -72,6 +72,7 @@ class VisionPipe:
             "depth_masks": List of depth masks
         }
         """
+        queries = [q.lower() for q in queries]
         #throw away old poses
         self.pose_time_tracker = [(pose, time) for pose, time in self.pose_time_tracker if time > (time_stamp - config["pose_expire_time"])]
 
@@ -83,18 +84,16 @@ class VisionPipe:
 
 
         #get 2d predictions dict with lists of probabilities, boxes from OWLv2
-        candidates_2d = self.BackBone.predict(rgb_img, querries, debug=debug)
+        candidates_2d = self.BackBone.predict(rgb_img, queries, debug=debug)
 
 
         #prepare the 3d predictions dict
         candidates_3d = {}
         #Will need to transform points according to robot pose
-        transformation_matrix = pose_to_matrix(obs_pose)
         for object, candidate in candidates_2d.items():
             #convert each set of [boxes, probs] to 3D point clouds
-            pcds, box_3d, probs, rgb_masks, depth_masks = self.sam2.predict(rgb_img, depth_img, candidate["boxes"], candidate["probs"], I, debug=debug, query_str=object)
-            pcds = [pcd.transform(transformation_matrix) for pcd in pcds]
-            box_3d = [pcd.get_axis_aligned_bounding_box() for pcd in pcds]
+            pcds, box_3d, probs, rgb_masks, depth_masks = self.sam2.predict(rgb_img, depth_img, candidate["boxes"], candidate["probs"], I, obs_pose, debug=debug, query_str=object)
+
             #print(f"{box_3d=}")
 
 
@@ -249,7 +248,7 @@ class VisionPipe:
         """
         Returns the top candidate point cloud and its belief score for a given object.
         """
-        if query in self.tracked_objects:
+        if query in self.tracked_objects and len(self.tracked_objects[query]["pcds"]) > 0 and len(self.tracked_objects[query]["probs"]) > 0:
             candiates = self.tracked_objects[query]
             #print(f"{candiates=}")
             argmax1, maxval1 = max(enumerate(candiates["probs"]), key=lambda pair: pair[1])
