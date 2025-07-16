@@ -8,7 +8,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_directory
 import json
 
-config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'vision_pipeline', 'config.json'))
+config_path = os.path.join(get_package_share_directory('vision_pipeline'), 'config.json')
 config = json.load(open(config_path))
 def generate_launch_description():
     # Declare launch arguments for parameterization
