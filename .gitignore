@@ -4,3 +4,4 @@ figures/
 API_KEYS.py
 *.pth
 *.pt
+EV_components/
