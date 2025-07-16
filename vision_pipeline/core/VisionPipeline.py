@@ -32,7 +32,7 @@ os.makedirs(os.path.join(fig_dir, "VisionPipeline"), exist_ok=True)
 
 from math_utils import iou_3d, pose_to_matrix, matrix_to_pose, in_image, is_obscured
 from SAM2 import SAM2_PC
-from BBBackBones import OWLv2, Gemini_BB
+from BBBackBones import OWLv2, Gemini_BB, YOLO_WORLD
 
 class VisionPipe:
     def __init__(self):
@@ -52,6 +52,8 @@ class VisionPipe:
             self.BackBone = Gemini_BB()
         elif config["backbone"] == "owl":
             self.BackBone = OWLv2()
+        elif config["backbone"] == "YOLOWORLD":
+            self.BackBone = YOLO_WORLD()
         else:
             raise ValueError(f"Unknown backbone {config['backbone']=}. Please choose 'gemini' or 'owl'.")
         self.sam2 = SAM2_PC()

@@ -215,7 +215,7 @@ def TestSubscriber(args=None):
     """Example usage of RealSenseSubscriber."""
     rclpy.init(args=args)
     print(f"hello world")
-    cams = ['head', 'left_hand', 'right_hand']
+    cams = config["rs_names"]
     subs = [RealSenseSubscriber(cam) for cam in cams]
     cam_dir = os.path.join(fig_dir, 'realsense_images')
     os.makedirs(cam_dir, exist_ok=True)

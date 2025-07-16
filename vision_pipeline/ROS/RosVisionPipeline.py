@@ -295,10 +295,11 @@ class ROS_VisionPipe(VisionPipe, Node):
 
 def RunVisionPipe():
     rclpy.init()
-    head_sub = RealSenseSubscriber("head")
-    left_hand_sub = RealSenseSubscriber("left_hand")
-    right_hand_sub = RealSenseSubscriber("right_hand")
-    VP = ROS_VisionPipe([head_sub, left_hand_sub, right_hand_sub])
+    subs = []
+    for name in config["rs_names"]:
+        sub = RealSenseSubscriber(name)
+        subs.append(sub)
+    VP = ROS_VisionPipe(subs)
     try:
         while rclpy.ok():
             success = VP.update(debug=True)

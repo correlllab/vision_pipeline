@@ -11,7 +11,7 @@
     "owlv2_sigmoid_gain":1,
 
 
-    "backbone": "gemini",
+    "backbone": "owl",
 
     "min_depth": 0.0,
     "min_3d_points":20,
@@ -36,8 +36,8 @@
     "rs_names": ["head", "left_hand"],
     "rs_serials": ["_250122072330", "_838212072778"],
     "rs_frames": ["head_camera_link", "left_hand_camera_link"],
-    "rs_width":424,
-    "rs_height":240,
+    "rs_width":1280,
+    "rs_height":720,
     "rs_fps":6,
 
     "camera_min_range_m":0.3,
