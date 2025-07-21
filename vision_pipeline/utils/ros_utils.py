@@ -7,7 +7,14 @@ from sensor_msgs_py   import point_cloud2
 from std_msgs.msg import Header
 import struct
 
+from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException
+from tf2_ros         import LookupException, ConnectivityException, ExtrapolationException
+from rclpy.time import Time
+from rclpy.duration import Duration
 
+
+
+from math_utils import quat_to_euler
 
 
 def decode_compressed_depth_image(msg) -> np.ndarray:
@@ -223,10 +230,76 @@ def msg_to_pcd(msg: PointCloud2) -> o3d.geometry.PointCloud:
     pcd.points = o3d.utility.Vector3dVector(np.asarray(xyz_list))
     if has_rgb and rgb_list:
         pcd.colors = o3d.utility.Vector3dVector(np.asarray(rgb_list))
-        print("Info: Extracted XYZ and RGB colors from PointCloud2.")
+        #print("Info: Extracted XYZ and RGB colors from PointCloud2.")
     elif has_rgb and not rgb_list:
         print("Warning: PointCloud2 message had 'rgb' field but no color data was extracted (possibly empty cloud).")
     else:
         print("Warning: PointCloud2 message does not contain a valid 'rgb' field. Only XYZ points extracted.")
 
     return pcd
+
+class TFHandler:
+    def __init__(self, node, cache_time: float = 10.0):
+        """
+        node: any rclpy.node.Node (for logging)
+        cache_time: how many seconds of past transforms to buffer
+        """
+        self.node = node
+        self._buffer = Buffer(cache_time=Duration(seconds=cache_time))
+        self._listener = TransformListener(self._buffer, node)
+
+    def lookup_transform(
+        self,
+        target_frame: str,
+        source_frame: str,
+        time_stamp,
+        timeout_sec: float = 0.1
+    ):
+        """
+        Return a geometry_msgs.msg.Transform or None.
+        time_stamp may be rclpy.time.Time or builtin_interfaces.msg.Time.
+        """
+        # normalize stamp to rclpy Time
+        stamp = time_stamp if isinstance(time_stamp, Time) else Time.from_msg(time_stamp)
+
+        if not self._buffer.can_transform(
+            target_frame, source_frame, stamp, Duration(seconds=timeout_sec)
+        ):
+            self.node.get_logger().debug(
+                f"TF unavailable: {source_frame} → {target_frame} @ {stamp}"
+            )
+            return None
+
+        try:
+            xf = self._buffer.lookup_transform(
+                target_frame,
+                source_frame,
+                stamp,
+                timeout=Duration(seconds=timeout_sec)
+            )
+            return xf.transform
+
+        except (LookupException, ConnectivityException, ExtrapolationException) as e:
+            self.node.get_logger().warn(
+                f"TF lookup failed {source_frame}→{target_frame}: {e}"
+            )
+            return None
+
+    def lookup_pose(
+        self,
+        target_frame: str,
+        source_frame: str,
+        time_stamp,
+        timeout_sec: float = 0.1
+    ) -> list[float] | None:
+        """
+        Return [x, y, z, roll, pitch, yaw] in target_frame, or None.
+        """
+        tf = self.lookup_transform(target_frame, source_frame, time_stamp, timeout_sec)
+        if tf is None:
+            return None
+
+        t = tf.translation
+        q = tf.rotation
+        roll, pitch, yaw = quat_to_euler(q.x, q.y, q.z, q.w)
+        return [t.x, t.y, t.z, roll, pitch, yaw]

@@ -13,7 +13,7 @@ config = json.load(open(config_path))
 def generate_launch_description():
     # Declare launch arguments for parameterization
     declared_arguments = [
-        DeclareLaunchArgument('enable_pointcloud', default_value='false'),
+        DeclareLaunchArgument('enable_pointcloud', default_value='true'),
         DeclareLaunchArgument('enable_rgbd', default_value='false'),
     ]
 
@@ -34,6 +34,7 @@ def generate_launch_description():
                         'camera_namespace': 'realsense',
                         'serial_no': serial,
                         'rgb_camera.color_profile': f'{width}x{height}x{fps}',
+                        'depth_module.depth_profile':  f'{width}x{height}x{fps}',
                         'enable_color': 'true',
                         'enable_depth': 'true',
                         'pointcloud.enable': pointcloud,

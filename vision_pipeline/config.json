@@ -42,6 +42,8 @@
     "camera_min_range_m":0.3,
     "camera_max_range_m":3.0,
 
-    "debug": false
+    "debug": false,
+
+    "base_frame": "pelvis"
 
 }
