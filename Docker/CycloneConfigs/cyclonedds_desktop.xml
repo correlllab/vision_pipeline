@@ -1,45 +1,36 @@
 <CycloneDDS>
-    <Domain>
+  <Domain>
 
-        <General>
-            <Interfaces>
-                <NetworkInterface name="wlp5s0" priority="default" multicast="default" />
-            </Interfaces>
+    <General>
+      <Interfaces>
+        <NetworkInterface name="wlp5s0" priority="default" multicast="default"/>
+      </Interfaces>
 
-            <!-- Recommended additions -->
-            <MaxMessageSize>65507</MaxMessageSize>  <!-- Max UDP size -->
-            <FragmentSize>4096</FragmentSize>       <!-- Break large messages into this size -->
-            <AllowMulticast>true</AllowMulticast>   <!-- Ensure multicast is allowed -->
-            <EnableMulticastLoopback>false</EnableMulticastLoopback>
-        </General>
+      <MaxMessageSize>65507B</MaxMessageSize>          <!-- Explicit unit: bytes -->
+      <FragmentSize>4096B</FragmentSize>               <!-- Explicit unit: bytes -->
+      <AllowMulticast>true</AllowMulticast>
+      <EnableMulticastLoopback>false</EnableMulticastLoopback>
+      <DontRoute>true</DontRoute>
+    </General>
 
+    <Discovery>
+      <Peers>
+        <Peer address="192.168.123.164"/>  <!-- robot IP -->
+        <Peer address="192.168.123.18"/>   <!-- operator desktop IP -->
+      </Peers>
+      <LeaseDuration>10s</LeaseDuration>
+    </Discovery>
 
-        <!-- Direct peer discovery (optional if multicast works well) -->
-        <Discovery>
-        <Peers>
-            <Peer address="192.168.123.18"/>  <!-- Operator desktop IP -->
-            <Peer address="192.168.123.164"/>  <!-- robot IP -->
-        </Peers>
-        <LeaseDuration>10s</LeaseDuration> <!-- Fast disconnect detection -->
-        </Discovery>
+    <Internal>
+      <HeartbeatInterval min="5ms" max="20ms" minsched="5ms"/>
+      <NackDelay>2ms</NackDelay>
+      <PreEmptiveAckDelay>2ms</PreEmptiveAckDelay>
+      <MultipleReceiveThreads>true</MultipleReceiveThreads>
+    </Internal>
 
-         <!-- Internal tuning for performance and stability -->
-         <Internal>
-            <HeartbeatInterval min="5ms" max="20ms" minsched="5ms"/>
-            <NackDelay>2ms</NackDelay>
-            <PreEmptiveAckDelay>2ms</PreEmptiveAckDelay>
-            <MultipleReceiveThreads>4</MultipleReceiveThreads>
+    <Tracing>
+      <Verbosity>warning</Verbosity>
+    </Tracing>
 
-            <SocketReceiveBufferSize min="2097152" max="4194304"/>
-            <SocketSendBufferSize min="2097152" max="4194304"/>
-        </Internal>
-
-        <!-- Optional logging for debugging -->
-        <Tracing>
-            <Verbosity>warning</Verbosity>
-            <!-- Uncomment to save logs -->
-            <!-- <OutputFile>/tmp/cyclonedds.log</OutputFile> -->
-        </Tracing>
-
-    </Domain>
+  </Domain>
 </CycloneDDS>
