@@ -53,4 +53,4 @@ def generate_launch_description():
                 fps = config['rs_fps'],
             )
         )
-    return LaunchDescription(declared_arguments + cams)
+    return LaunchDescription(cams)
