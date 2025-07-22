@@ -65,7 +65,9 @@ RUN pip install --no-cache-dir ultralytics \
 
 # Set CycloneDDS as RMW implementation
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-ENV CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"wlp5s0\" priority=\"default\" multicast=\"default\"/></Interfaces></General></Domain></CycloneDDS>"
+COPY ./src/vision_pipeline/Docker/CycloneConfigs/cyclonedds_robot.xml /etc/cyclonedds_robot.xml
+COPY ./src/vision_pipeline/Docker/CycloneConfigs/cyclonedds_desktop.xml /etc/cyclonedds_desktop.xml
+ENV CYCLONEDDS_URI=file:///etc/cyclonedds_desktop.xml
 
 # Entry point script to source and conditionally build
 RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \
