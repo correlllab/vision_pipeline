@@ -11,15 +11,6 @@ import json
 config_path = os.path.join(get_package_share_directory('vision_pipeline'), 'config.json')
 config = json.load(open(config_path))
 def generate_launch_description():
-    # Declare launch arguments for parameterization
-    declared_arguments = [
-        DeclareLaunchArgument('enable_pointcloud', default_value='true'),
-        DeclareLaunchArgument('enable_rgbd', default_value='false'),
-    ]
-
-    # Launch configurations
-    pointcloud = LaunchConfiguration('enable_pointcloud')
-    rgbd = LaunchConfiguration('enable_rgbd')
 
     pkg_share = get_package_share_directory('realsense2_camera')
     rs_launch_file = os.path.join(pkg_share, 'launch', 'rs_launch.py')
@@ -37,10 +28,16 @@ def generate_launch_description():
                         'depth_module.depth_profile':  f'{width}x{height}x{fps}',
                         'enable_color': 'true',
                         'enable_depth': 'true',
-                        'pointcloud.enable': pointcloud,
+                        'pointcloud.enable': 'true',
                         'align_depth.enable': 'true',
-                        'enable_rgbd': rgbd,
+                        'initial_reset': 'true',
                         'enable_sync': 'true',
+                        'enable_rgbd': 'false',
+                        'enable_motion': 'false',
+                        'enable_infra' : 'false',
+                        'enable_infra1': 'false',
+                        'enable_infra2': 'false',
+
                     }.items()
                 )
             ],

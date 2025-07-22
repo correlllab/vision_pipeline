@@ -70,6 +70,9 @@ COPY ./src/vision_pipeline/Docker/CycloneConfigs/cyclonedds_robot.xml /etc/cyclo
 COPY ./src/vision_pipeline/Docker/CycloneConfigs/cyclonedds_desktop.xml /etc/cyclonedds_desktop.xml
 ENV CYCLONEDDS_URI=file:///etc/cyclonedds_robot.xml
 
+
+
+
 # Entry point script to source and conditionally build
 RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \
     echo 'set -e' >> /ros_entrypoint.sh && \
@@ -88,6 +91,7 @@ RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \
 
 RUN sudo apt update
 RUN sudo apt install --only-upgrade ros-humble-geometry-msgs
+RUN sudo apt install ros-humble-image-transport-plugins
 
 
 ENTRYPOINT ["/ros_entrypoint.sh"]
