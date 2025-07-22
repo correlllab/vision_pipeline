@@ -17,13 +17,14 @@ RUN apt-get update && \
 
 
 # Re-import ROS 2 key and repo
-RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc \
-    | gpg --dearmor \
-    | tee /usr/share/keyrings/ros-archive-keyring.gpg > /dev/null && \
-    echo "deb [signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
-      http://packages.ros.org/ros2/ubuntu \
-      $(lsb_release -cs) main" \
-    | tee /etc/apt/sources.list.d/ros2-latest.list
+#Comment this out if PGP key error occurs
+# RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc \
+#     | gpg --dearmor \
+#     | tee /usr/share/keyrings/ros-archive-keyring.gpg > /dev/null && \
+#     echo "deb [signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+#       http://packages.ros.org/ros2/ubuntu \
+#       $(lsb_release -cs) main" \
+#     | tee /etc/apt/sources.list.d/ros2-latest.list
 
 # Install Cyclone DDS
 RUN apt-get update && \
@@ -67,7 +68,7 @@ RUN pip install --no-cache-dir ultralytics \
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 COPY ./src/vision_pipeline/Docker/CycloneConfigs/cyclonedds_robot.xml /etc/cyclonedds_robot.xml
 COPY ./src/vision_pipeline/Docker/CycloneConfigs/cyclonedds_desktop.xml /etc/cyclonedds_desktop.xml
-ENV CYCLONEDDS_URI=file:///etc/cyclonedds_desktop.xml
+ENV CYCLONEDDS_URI=file:///etc/cyclonedds_robot.xml
 
 # Entry point script to source and conditionally build
 RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \

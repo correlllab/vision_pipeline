@@ -5,6 +5,9 @@ docker run --rm -it \
   --shm-size=1g \
   --network host \
   --cpus="4" \
+  --privileged \
+  --device /dev/bus/usb:/dev/bus/usb \
+  -v /dev:/dev \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -v /etc/localtime:/etc/localtime:ro \
   -v /etc/timezone:/etc/timezone:ro \

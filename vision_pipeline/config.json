@@ -33,7 +33,7 @@
     "vis_k":10,
 
     "rs_names": ["head", "left_hand"],
-    "rs_serials": ["_926522071700", "_838212072778"],
+    "rs_serials": ["_250122072330", "_838212072778"],
     "rs_frames": ["head_camera_link", "left_hand_camera_link"],
     "rs_width":1280,
     "rs_height":720,
