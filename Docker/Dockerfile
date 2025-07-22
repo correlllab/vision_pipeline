@@ -17,13 +17,13 @@ RUN apt-get update && \
 
 
 # Re-import ROS 2 key and repo
-# RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc \
-#     | gpg --dearmor \
-#     | tee /usr/share/keyrings/ros-archive-keyring.gpg > /dev/null && \
-#     echo "deb [signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
-#       http://packages.ros.org/ros2/ubuntu \
-#       $(lsb_release -cs) main" \
-#     | tee /etc/apt/sources.list.d/ros2-latest.list
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc \
+    | gpg --dearmor \
+    | tee /usr/share/keyrings/ros-archive-keyring.gpg > /dev/null && \
+    echo "deb [signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+      http://packages.ros.org/ros2/ubuntu \
+      $(lsb_release -cs) main" \
+    | tee /etc/apt/sources.list.d/ros2-latest.list
 
 # Install Cyclone DDS
 RUN apt-get update && \
@@ -65,7 +65,7 @@ RUN pip install --no-cache-dir ultralytics \
 
 # Set CycloneDDS as RMW implementation
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-ENV CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"eth0\" priority=\"default\" multicast=\"default\"/></Interfaces></General></Domain></CycloneDDS>"
+ENV CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces><NetworkInterface name=\"wlp5s0\" priority=\"default\" multicast=\"default\"/></Interfaces></General></Domain></CycloneDDS>"
 
 # Entry point script to source and conditionally build
 RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \
