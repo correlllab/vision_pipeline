@@ -1,5 +1,5 @@
 <CycloneDDS>
-  <Domain>
+  <Domain id="0">
 
     <General>
       <Interfaces>
@@ -7,8 +7,8 @@
       </Interfaces>
 
       <MaxMessageSize>65507B</MaxMessageSize>          <!-- Explicit unit: bytes -->
-      <FragmentSize>4096B</FragmentSize>               <!-- Explicit unit: bytes -->
-      <AllowMulticast>true</AllowMulticast>
+      <FragmentSize>1472B</FragmentSize>               <!-- Explicit unit: bytes -->
+      <AllowMulticast>false</AllowMulticast>
       <EnableMulticastLoopback>false</EnableMulticastLoopback>
       <DontRoute>true</DontRoute>
     </General>

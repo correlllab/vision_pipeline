@@ -32,12 +32,12 @@ def generate_launch_description():
                         'align_depth.enable': 'true',
                         'initial_reset': 'true',
                         'enable_sync': 'true',
+                        'decimation_filter.enable': 'true',
                         'enable_rgbd': 'false',
                         'enable_motion': 'false',
                         'enable_infra' : 'false',
                         'enable_infra1': 'false',
                         'enable_infra2': 'false',
-
                     }.items()
                 )
             ],

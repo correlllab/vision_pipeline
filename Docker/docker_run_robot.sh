@@ -4,7 +4,7 @@ docker run --rm -it \
   -v /home/unitree/vp_ws/src:/ros2_ws/src \
   --shm-size=1g \
   --network host \
-  --cpus="1" \
+  --cpus="4" \
   --privileged \
   --device /dev/bus/usb:/dev/bus/usb \
   -v /dev:/dev \
