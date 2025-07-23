@@ -37,42 +37,7 @@
     </Tracing>
 
 
-    <!-- 1) Define a QoS library/profile that sets best_effort + keep_last(1) -->
-    <qos_library name="realsense_override">
-      <qos_profile name="be_kl1">
-        <datawriter_qos>
-          <reliability><kind>BEST_EFFORT_RELIABILITY_QOS</kind></reliability>
-          <history>
-            <kind>KEEP_LAST_HISTORY_QOS</kind>
-            <depth>1</depth>
-          </history>
-        </datawriter_qos>
-        <datareader_qos>
-          <reliability><kind>BEST_EFFORT_RELIABILITY_QOS</kind></reliability>
-          <history>
-            <kind>KEEP_LAST_HISTORY_QOS</kind>
-            <depth>1</depth>
-          </history>
-        </datareader_qos>
-
-        <!-- 2) List each exact topic you want to override -->
-        <topic_qos name="/realsense/head/color/image_raw/compressed"/>
-        <topic_qos name="/realsense/head/aligned_depth_to_color/image_raw/compressedDepth"/>
-        <topic_qos name="/realsense/head/color/camera_info"/>
-        <topic_qos name="/realsense/head/depth/color/points"/>
-
-        <topic_qos name="/realsense/left_hand/color/image_raw/compressed"/>
-        <topic_qos name="/realsense/left_hand/aligned_depth_to_color/image_raw/compressedDepth"/>
-        <topic_qos name="/realsense/left_hand/color/camera_info"/>
-        <topic_qos name="/realsense/left_hand/depth/color/points"/>
-      </qos_profile>
-    </qos_library>
-
-    <!-- 3) Apply that profile to this DomainParticipant -->
-    <participant_qos>
-      <qos_library_ref>realsense_override</qos_library_ref>
-      <qos_profile_ref>be_kl1</qos_profile_ref>
-    </participant_qos>
+    
 
   </Domain>
 </CycloneDDS>
