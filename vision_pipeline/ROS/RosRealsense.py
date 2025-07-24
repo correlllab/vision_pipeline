@@ -70,7 +70,7 @@ class RealSenseSubscriber(Node):
 
         # QoS for image topics (RELIABLE + TRANSIENT_LOCAL)
         image_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
             depth=1
@@ -78,7 +78,7 @@ class RealSenseSubscriber(Node):
 
         # QoS for camera_info (RELIABLE + VOLATILE)
         info_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
             depth=1
@@ -226,7 +226,7 @@ class PointCloudAccumulator(Node):
         node_name = "point_cloud_accumulator" + "__".join(camera_names)
         super().__init__(node_name)
         pc_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
             depth=1
@@ -259,10 +259,12 @@ class PointCloudAccumulator(Node):
             print(f"Received point cloud from {msg.header.frame_id}")
     def main_loop(self):
         while rclpy.ok():
+            rclpy.spin_once(self, timeout_sec=0.1)
             if len(self.msg_queue) > 0:
                 with self._lock:
                     msg = self.msg_queue.pop(0)
                     frame = msg.header.frame_id
+                    print(f"Processing point cloud from frame: {frame}")
                     transform = self.tf_handler.lookup_transform(config["base_frame"], frame, msg.header.stamp)
                     if transform is None:
                         print(f"Transform not found for frame {frame}->{config['base_frame']}, skipping point cloud.")
