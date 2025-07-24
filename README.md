@@ -1,5 +1,25 @@
 # VisionPipeline
 This is a work in progress repo that holds a probabilistic vision pipeline
+
+## Network Config
+I found it helpful to increase the socket buffer size on linux
+```
+# Temporarily raise to 16 MB
+sudo sysctl -w net.core.rmem_max=16777216
+sudo sysctl -w net.core.rmem_default=16777216
+
+# Verify
+sysctl net.core.rmem_max net.core.rmem_default
+```
+To make it permanent, add a file `/etc/sysctl.d/60-cyclone-rmem.conf` with:
+```
+net.core.rmem_max     = 16777216
+net.core.rmem_default = 16777216
+```
+Then either reboot or reload via sudo sysctl --system.
+
+
+
 ## Starting the camera topics
 To start the camera topics ssh into your robot where the realsense are connected and create a vision pipleine workspace
 ```
