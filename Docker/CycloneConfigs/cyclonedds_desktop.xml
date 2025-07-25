@@ -9,7 +9,7 @@
       <MaxMessageSize>65507B</MaxMessageSize>          <!-- Explicit unit: bytes -->
       <FragmentSize>1472B</FragmentSize>               <!-- Explicit unit: bytes -->
       <AllowMulticast>true</AllowMulticast>
-      <EnableMulticastLoopback>false</EnableMulticastLoopback>
+      <EnableMulticastLoopback>true</EnableMulticastLoopback>
       <DontRoute>true</DontRoute>
     </General>
 

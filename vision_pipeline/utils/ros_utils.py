@@ -238,8 +238,40 @@ def msg_to_pcd(msg: PointCloud2) -> o3d.geometry.PointCloud:
 
     return pcd
 
+def transform_to_matrix(tf_msg):
+    """
+    Convert a geometry_msgs.msg.Transform into a 4×4 numpy array.
+    """
+    # Translation
+    tx = tf_msg.translation.x
+    ty = tf_msg.translation.y
+    tz = tf_msg.translation.z
+
+    # Quaternion
+    qx = tf_msg.rotation.x
+    qy = tf_msg.rotation.y
+    qz = tf_msg.rotation.z
+    qw = tf_msg.rotation.w
+
+    # Build rotation matrix
+    xx, yy, zz = qx*qx, qy*qy, qz*qz
+    xy, xz, yz = qx*qy, qx*qz, qy*qz
+    wx, wy, wz = qw*qx, qw*qy, qw*qz
+
+    R = np.array([
+        [1 - 2*(yy + zz),   2*(xy - wz),      2*(xz + wy)],
+        [2*(xy + wz),       1 - 2*(xx + zz),  2*(yz - wx)],
+        [2*(xz - wy),       2*(yz + wx),      1 - 2*(xx + yy)]
+    ])
+
+    # Assemble homogeneous matrix
+    T = np.eye(4)
+    T[:3, :3] = R
+    T[:3, 3] = [tx, ty, tz]
+    return T
+
 class TFHandler:
-    def __init__(self, node, cache_time: float = 10.0):
+    def __init__(self, node, cache_time: float = 120.0):
         """
         node: any rclpy.node.Node (for logging)
         cache_time: how many seconds of past transforms to buffer
@@ -280,7 +312,7 @@ class TFHandler:
             return xf.transform
 
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
-            self.node.get_logger().warn(
+            self.node.get_logger().debug(
                 f"TF lookup failed {source_frame}→{target_frame}: {e}"
             )
             return None
@@ -290,12 +322,11 @@ class TFHandler:
         target_frame: str,
         source_frame: str,
         time_stamp,
-        timeout_sec: float = 0.1
     ) -> list[float] | None:
         """
         Return [x, y, z, roll, pitch, yaw] in target_frame, or None.
         """
-        tf = self.lookup_transform(target_frame, source_frame, time_stamp, timeout_sec)
+        tf = self.lookup_transform(target_frame, source_frame, time_stamp)
         if tf is None:
             return None
 
