@@ -18,6 +18,8 @@ import matplotlib.pyplot as plt
 import os
 import sys
 
+import time
+
 import open3d as o3d
 """
 Cheat Imports
@@ -43,7 +45,8 @@ config = json.load(open(config_path, 'r'))
 
 #from SAM2 import SAM2_PC
 #from BBBackBones import Gemini_BB, OWLv2
-from ros_utils import decode_compressed_depth_image, msg_to_pcd, pcd_to_msg, TFHandler
+from ros_utils import decode_compressed_depth_image, msg_to_pcd, pcd_to_msg, TFHandler, transform_to_matrix
+from math_utils import pose_to_matrix, matrix_to_pose
 
 
 class RealSenseSubscriber(Node):
@@ -73,7 +76,7 @@ class RealSenseSubscriber(Node):
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1
+            depth=5
         )
 
         # QoS for camera_info (RELIABLE + VOLATILE)
@@ -81,7 +84,7 @@ class RealSenseSubscriber(Node):
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1
+            depth=5
         )
 
         # Subscriptions
@@ -223,13 +226,13 @@ def TestSubscriber(args=None):
 
 class PointCloudAccumulator(Node):
     def __init__(self, camera_names):
-        node_name = "point_cloud_accumulator" + "__".join(camera_names)
+        node_name = "point_cloud_accumulator"
         super().__init__(node_name)
         pc_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1
+            depth=5
         )
         self.subscribers = []
         for camera_name in camera_names:
@@ -246,33 +249,77 @@ class PointCloudAccumulator(Node):
         self.publisher = self.create_publisher(
             PointCloud2,
             "/realsense/accumulated_point_cloud",
-            pc_qos,
+            pc_qos
         )
         self.pcd = o3d.geometry.PointCloud()
         self.tf_handler = TFHandler(self)
         self._lock = threading.Lock()
         self.msg_queue = []
 
+        # Start a timer to publish the accumulated point cloud at 6 Hz
+        self._timer = self.create_timer(1.0 / 6.0, self.publish_accumulated_pc)
+
+        # Private executor & spin thread for this node
+        self._executor = rclpy.executors.SingleThreadedExecutor()
+        self._executor.add_node(self)
+        self._spin_thread = threading.Thread(
+            target=self._executor.spin, daemon=True
+        )
+        self._spin_thread.start()
+
+
+    def publish_accumulated_pc(self):
+        if len(self.pcd.points) == 0:
+            # print("No point cloud data to publish.")
+            # # Sample points from a unit sphere and add to the point cloud for visualization/testing
+            # sphere = o3d.geometry.TriangleMesh.create_sphere(radius=1)
+            # sphere_pcd = sphere.sample_points_uniformly(number_of_points=500)
+            # sphere_pcd.paint_uniform_color([1, 0, 0])  # Red color for visibility
+            # self.pcd += sphere_pcd
+            return
+        # Publish accumulated point cloud
+        msg_out = pcd_to_msg(self.pcd, frame_id=config["base_frame"])
+        self.publisher.publish(msg_out)
+        print(f"Published accumulated point cloud with {len(self.pcd.points)} points to /realsense/accumulated_point_cloud")
+
     def pc_callback(self, msg):
+        rs_frame = msg.header.frame_id
+        matching_frames = [f for f in config["rs_names"] if f in rs_frame][0]
+        cam_idx = config["rs_names"].index(matching_frames)
+        if cam_idx < 0:
+            # print(f"Camera frame {frame} matching {matching_frames} not found in config, skipping point cloud.")
+            return
+        frame = config["rs_frames"][cam_idx]
+        # transform_ros = self.tf_handler.lookup_transform(config["base_frame"], frame, msg.header.stamp)
+        # if transform_ros is None:
+        #     print(f"Transform not found for frame {frame}->{config['base_frame']}, skipping point cloud.")
+        #     continue
+        pose = self.tf_handler.lookup_pose(config["base_frame"], frame, msg.header.stamp)
+        if pose is None:
+            print(f"Pose not found for frame {frame}->{config['base_frame']}, skipping point cloud.")
+            return
         with self._lock:
-            self.msg_queue.append(msg)
-            print(f"Received point cloud from {msg.header.frame_id}")
+            print(f"Pose found for frame {frame}->{config['base_frame']}.")
+            
+            self.msg_queue.append((msg, pose))
+
+            # print(f"Received point cloud from {msg.header.frame_id}")
+            
     def main_loop(self):
         while rclpy.ok():
-            rclpy.spin_once(self, timeout_sec=0.1)
             if len(self.msg_queue) > 0:
+                print(f"Processing {len(self.msg_queue)} point clouds in queue...")
                 with self._lock:
-                    msg = self.msg_queue.pop(0)
-                    frame = msg.header.frame_id
-                    print(f"Processing point cloud from frame: {frame}")
-                    transform = self.tf_handler.lookup_transform(config["base_frame"], frame, msg.header.stamp)
-                    if transform is None:
-                        print(f"Transform not found for frame {frame}->{config['base_frame']}, skipping point cloud.")
+                    msg, pose = self.msg_queue.pop(0)
+                    #print(f"Processing point cloud from frame: {frame}")
+                    if pose is None:
                         continue
+                    transform = pose_to_matrix(pose)
+                    #transform = transform_to_matrix(transform_ros)
                     pcd = msg_to_pcd(msg)
                     pcd.transform(transform)
                     if pcd.is_empty():
-                        print("Received empty point cloud, skipping...")
+                        # print("Received empty point cloud, skipping...")
                         continue
                     self.pcd += pcd
                     self.pcd = self.pcd.voxel_down_sample(voxel_size=config["voxel_size"])
@@ -281,17 +328,13 @@ class PointCloudAccumulator(Node):
                         self.pcd, ind = self.pcd.remove_statistical_outlier(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
                     if config["radius_outlier_removal"]:
                         self.pcd, ind = self.pcd.remove_radius_outlier(nb_points=config["radius_nb_points"], radius=config["radius_radius"])
-                    print(f"Accumulated point cloud size: {len(self.pcd.points)} points")
-                    # Publish accumulated point cloud
-                    msg_out = pcd_to_msg(self.pcd, frame_id=msg.header.frame_id)
-                    self.publisher.publish(msg_out)
-                    print(f"Published accumulated point cloud with {len(self.pcd.points)} points to /realsense/accumulated_point_cloud")
 
 def TestPointCloudAccumulator(args=None):
     rclpy.init(args=args)
     camera_names = config["rs_names"]
     PC_ACC = PointCloudAccumulator(camera_names)
     PC_ACC.main_loop()
+    rclpy.shutdown()
 
 def TestFoundationModels(args=None):
     from BBBackBones import Gemini_BB, OWLv2, display_2dCandidates

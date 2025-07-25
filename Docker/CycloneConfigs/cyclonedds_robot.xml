@@ -9,7 +9,7 @@
       <MaxMessageSize>65507B</MaxMessageSize>          <!-- Max UDP packet size with explicit unit -->
       <FragmentSize>1472B</FragmentSize>               <!-- Fragmentation size -->
       <AllowMulticast>true</AllowMulticast>
-      <EnableMulticastLoopback>false</EnableMulticastLoopback>
+      <EnableMulticastLoopback>true</EnableMulticastLoopback>
       <DontRoute>true</DontRoute>
     </General>
 
