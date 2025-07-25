@@ -27,6 +27,7 @@ def make_camera(name: str, serial: str, width: int, height: int, fps: int) -> No
         self.get_logger().error(f"Camera name {name} not found in config.")
         raise ValueError(f"Camera name {name} not found in config {config['rs_names']=}.")
     source_frame = config["rs_frames"][cam_idx]
+    #source_frame = source_frame.replace(f"{name}_","")
 
     return Node(
         package='realsense2_camera',
@@ -46,14 +47,14 @@ def make_camera(name: str, serial: str, width: int, height: int, fps: int) -> No
             # === Modalities ===
             'enable_color':True,
             'enable_depth':True,
-            'enable_sync':True,
+            'enable_sync':False,
             'align_depth.enable':True,
             'pointcloud.enable':True,
             'enable_accel':False,            
             'enable_gyro':False,
             'enable_infra1':False,
             'enable_infra2':False,
-            'enable_rgbd':True,
+            'enable_rgbd':False,
 
             # === Plugins ===
             f'{name}.color.image_raw.enable_pub_plugins':      ['image_transport/compressed'],
@@ -83,17 +84,18 @@ def make_camera(name: str, serial: str, width: int, height: int, fps: int) -> No
 
             # === Filters ===
             'decimation_filter.enable': True,
-            'decimation_filter.filter_magnitude': 2,
+            'decimation_filter.filter_magnitude': 3,
             'pointcloud.stream_filter':2,
             'pointcloud.stream_index_filter':0,
+            'pointcloud.filter_magnitude':2,
+            'pointcloud.frames_queue_size':4,
             # 'spatial_filter.enable': False,
             # 'temporal_filter.enable': False,
             # 'hole_filling_filter.enable': False,
 
             # === Transform & Playback ===
             'publish_tf': True,
-            # 'tf_publish_rate': 50.0,
-            # 'initial_reset': False,
+            'tf_publish_rate': 0.0,
             # 'json_file_path': '',
             # 'rosbag_filename': '',
             # 'rosbag_loop': False,
@@ -118,14 +120,43 @@ def generate_launch_description() -> LaunchDescription:
         )
         ld.add_action(node)
 
-    pc_acc_node = Node(
-        package='vision_pipeline',
-        executable='pc_acc',
-        name='pc_acc',
-        output='screen',
-        emulate_tty=True,
 
+    static_hand_tf = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='static_hand_tf',
+        arguments = [
+            '0', '0', '0', #x, y, z translation
+            '0', '0', '0', '1', #x, y, z, w quats
+            'left_hand_camera_link',
+            'left_hand_depth_optical_frame'
+        ],
+        output='screen'
     )
-    ld.add_action(pc_acc_node)
+    ld.add_action(static_hand_tf)
+
+
+    static_hand_tf = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='static_hand_tf',
+        arguments = [
+            '0', '0', '0', #x, y, z translation
+            '0', '0', '0', '1', #x, y, z, w quats
+            'head_camera_link',
+            'head_depth_optical_frame'
+        ],
+        output='screen'
+    )
+    ld.add_action(static_hand_tf)
+
+    # pc_acc_node = Node(
+    #     package='vision_pipeline',
+    #     executable='pc_acc',
+    #     name='pc_acc',
+    #     output='screen',
+    #     emulate_tty=True,
+    # )
+    #ld.add_action(pc_acc_node)
 
     return ld
