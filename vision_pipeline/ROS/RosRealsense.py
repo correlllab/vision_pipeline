@@ -280,7 +280,7 @@ class PointCloudAccumulator(Node):
         # Publish accumulated point cloud
         msg_out = pcd_to_msg(self.pcd, frame_id=config["base_frame"])
         self.publisher.publish(msg_out)
-        print(f"Published accumulated point cloud with {len(self.pcd.points)} points to /realsense/accumulated_point_cloud")
+        # print(f"Published accumulated point cloud with {len(self.pcd.points)} points to /realsense/accumulated_point_cloud")
 
     def pc_callback(self, msg):
         rs_frame = msg.header.frame_id
@@ -296,10 +296,10 @@ class PointCloudAccumulator(Node):
         #     continue
         pose = self.tf_handler.lookup_pose(config["base_frame"], frame, msg.header.stamp)
         if pose is None:
-            print(f"Pose not found for frame {frame}->{config['base_frame']}, skipping point cloud.")
+            # print(f"Pose not found for frame {frame}->{config['base_frame']}, skipping point cloud.")
             return
         with self._lock:
-            print(f"Pose found for frame {frame}->{config['base_frame']}.")
+            # print(f"Pose found for frame {frame}->{config['base_frame']}.")
             
             self.msg_queue.append((msg, pose))
 
@@ -308,7 +308,7 @@ class PointCloudAccumulator(Node):
     def main_loop(self):
         while rclpy.ok():
             if len(self.msg_queue) > 0:
-                print(f"Processing {len(self.msg_queue)} point clouds in queue...")
+                print(f"\rProcessing {len(self.msg_queue)} point clouds in queue...", end="", flush=True)
                 with self._lock:
                     msg, pose = self.msg_queue.pop(0)
                     #print(f"Processing point cloud from frame: {frame}")

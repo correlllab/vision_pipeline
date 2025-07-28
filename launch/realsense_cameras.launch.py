@@ -84,7 +84,7 @@ def make_camera(name: str, serial: str, width: int, height: int, fps: int) -> No
 
             # === Filters ===
             'decimation_filter.enable': True,
-            'decimation_filter.filter_magnitude': 3,
+            'decimation_filter.filter_magnitude': 4,
             'pointcloud.stream_filter':2,
             'pointcloud.stream_index_filter':0,
             'pointcloud.filter_magnitude':2,
@@ -150,13 +150,13 @@ def generate_launch_description() -> LaunchDescription:
     )
     ld.add_action(static_hand_tf)
 
-    # pc_acc_node = Node(
-    #     package='vision_pipeline',
-    #     executable='pc_acc',
-    #     name='pc_acc',
-    #     output='screen',
-    #     emulate_tty=True,
-    # )
-    #ld.add_action(pc_acc_node)
+    pc_acc_node = Node(
+        package='vision_pipeline',
+        executable='pc_acc',
+        name='pc_acc',
+        output='screen',
+        emulate_tty=True,
+    )
+    ld.add_action(pc_acc_node)
 
     return ld
