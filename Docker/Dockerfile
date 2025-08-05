@@ -48,7 +48,9 @@ RUN pip3 install --no-cache-dir \
       matplotlib \
       transformers \
       google-genai \
-      Pillow
+      Pillow \
+      pyrealsense2
+
 
 
 RUN pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
@@ -92,6 +94,7 @@ RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \
 RUN sudo apt update
 RUN sudo apt install --only-upgrade ros-humble-geometry-msgs
 RUN sudo apt install ros-humble-image-transport-plugins
+
 
 
 ENTRYPOINT ["/ros_entrypoint.sh"]
