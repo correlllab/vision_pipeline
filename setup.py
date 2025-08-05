@@ -15,7 +15,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         # include configuration file
         ('share/' + package_name, [os.path.join('vision_pipeline', 'config.json')]),
-        ('share/' + package_name + '/launch', ['launch/realsense_cameras.launch.py', "launch/example_client.launch.py", "launch/vp.launch.py"]),
+        ('share/' + package_name + '/launch', [ "launch/example_client.launch.py", "launch/vp.launch.py"]),
         ('share/' + package_name + '/Rviz', glob('Rviz/*.rviz')),
 
     ],
@@ -28,7 +28,7 @@ setup(
     entry_points={
         'console_scripts': [
             'camera = vision_pipeline.ROS.RosRealsense:TestSubscriber',
-            'pc_acc = vision_pipeline.ROS.RosRealsense:TestPointCloudAccumulator',
+            'hz = vision_pipeline.ROS.frequency_measure:MeasureCameraFrequency',
             'foundation_models = vision_pipeline.ROS.RosRealsense:TestFoundationModels',
             'vp = vision_pipeline.ROS.RosVisionPipeline:RunVisionPipe',
             'exampleclient = vision_pipeline.ROS.RosVisionPipeline:TestExampleClient',
