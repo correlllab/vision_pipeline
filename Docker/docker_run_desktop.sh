@@ -1,12 +1,15 @@
 #!/bin/bash
+# Allows the container to connect to your display for GUIs
 xhost +local:root
 
+# Run the container with maximum host resources
 docker run --rm -it \
+  --name vision-pipeline-container \
   -v /home/max/vp_ws/src:/ros2_ws/src \
   --gpus all \
-  --shm-size=1g \
   --network host \
-  --cpus="4" \
+  --ipc=host \
+  --pid=host \
   --privileged \
   --device /dev/bus/usb:/dev/bus/usb \
   -v /dev:/dev \

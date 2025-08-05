@@ -3,7 +3,9 @@
 
     <General>
       <Interfaces>
+        <NetworkInterface name="enp4s0" priority="default" multicast="default"/>
         <NetworkInterface name="wlp5s0" priority="default" multicast="default"/>
+
       </Interfaces>
 
       <MaxMessageSize>65507B</MaxMessageSize>          <!-- Explicit unit: bytes -->
