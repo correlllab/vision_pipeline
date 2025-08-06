@@ -98,7 +98,7 @@ def MeasureCameraFrequency(args=None):
             ax.set_ylabel("dt (seconds)")
             ax.set_title("time vs time between messages")
             ax.legend(loc='lower left', fontsize='small')
-            ax.set_ylim(0,1)
+            # ax.set_ylim(0,1)
             ax.grid(True)
 
 

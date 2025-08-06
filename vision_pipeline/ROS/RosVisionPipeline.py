@@ -58,8 +58,9 @@ class ROS_VisionPipe(VisionPipe, Node):
         self.marker_publishers = {}
         self.pc_publishers = {}
         self._lock = threading.RLock()
-        self.new_data = False
-        self.vis_frame = "pelvis"
+        self.vis_frame = config["base_frame"]
+        self.create_timer(1.0/6.0, self.publish_viz)
+
         self.start_services()
     def start_services(self) -> None:
         """
@@ -168,24 +169,24 @@ class ROS_VisionPipe(VisionPipe, Node):
                 return False
     def publish_viz(self):
         with self._lock:
-            if self.new_data:
-                for query in self.tracked_objects:
-                    candidate_set = None
-                    top_candidate_set = {"probs":[], "boxes":[], "pcds":[] }
+            for query in self.tracked_objects:
+                candidate_set = None
+                top_candidate_set = {"probs":[], "boxes":[], "pcds":[] }
 
-                    candidates = self.tracked_objects[query]
-                    values, indicies = candidates["probs"].topk(min(config["vis_k"], len(candidates["probs"])), largest=True)
-                    for i in indicies.tolist():
-                        top_candidate_set["probs"].append(candidates["probs"][i])
-                        top_candidate_set["boxes"].append(candidates["boxes"][i])
-                        top_candidate_set["pcds"].append(candidates["pcds"][i])
-                    pcd = self.get_pointcloud(top_candidate_set)
-                    pc_msg = pcd_to_msg(pcd, self.vis_frame)
-                    self.pc_publishers[query].publish(pc_msg)
+                candidates = self.tracked_objects[query]
+                values, indicies = candidates["probs"].topk(min(config["vis_k"], len(candidates["probs"])), largest=True)
+                for i in indicies.tolist():
+                    top_candidate_set["probs"].append(candidates["probs"][i])
+                    top_candidate_set["boxes"].append(candidates["boxes"][i])
+                    top_candidate_set["pcds"].append(candidates["pcds"][i])
+                pcd = self.get_pointcloud(top_candidate_set)
+                if len(pcd.points) == 0:
+                    continue
+                pc_msg = pcd_to_msg(pcd, self.vis_frame)
+                self.pc_publishers[query].publish(pc_msg)
 
-                    marker_msg = self.get_marker_msg(top_candidate_set, query)
-                    self.marker_publishers[query].publish(marker_msg)
-                self.new_data = False
+                marker_msg = self.get_marker_msg(top_candidate_set, query)
+                self.marker_publishers[query].publish(marker_msg)
     def get_pointcloud(self, candidates_set):
         #print(f"get_current_pointcloud called")
         pcd = o3d.geometry.PointCloud()
@@ -193,8 +194,6 @@ class ROS_VisionPipe(VisionPipe, Node):
         for p in candidates_set["pcds"]:
             pcd += p
         return pcd
-
-
 
     def get_marker_msg(self, candidate_set, query):
         marker_array = MarkerArray()
@@ -273,7 +272,7 @@ class ROS_VisionPipe(VisionPipe, Node):
 
             if not success:
                 msg = ", ".join(msg_components)
-                update_success.append((sub.camera_name, False, msg))
+                update_success.append((sub.camera_name_space, False, msg))
                 continue
 
             intrinsics = {
@@ -287,22 +286,22 @@ class ROS_VisionPipe(VisionPipe, Node):
             with self._lock:
                 time_stamp = Time.from_msg(info.header.stamp).nanoseconds / 1e9
                 result, update_msg = super().update(rgb_img, depth_img, self.track_strings, intrinsics, pose, time_stamp, debug=debug)
-                self.new_data = self.new_data or result
                 msg_components.append(update_msg)
             msg = ", ".join(msg_components)
-            update_success.append((sub.camera_name, result, msg))
+            update_success.append((sub.camera_name_space, result, msg))
         return update_success
 
 def RunVisionPipe():
     rclpy.init()
     subs = []
-    for name in config["rs_names"]:
-        sub = RealSenseSubscriber(name)
+    for name_space in config["rs_name_spaces"]:
+        sub = RealSenseSubscriber(name_space)
         subs.append(sub)
     VP = ROS_VisionPipe(subs)
+    VP.add_track_string(config["test_querys"])
     try:
         while rclpy.ok():
-            success = VP.update(debug=config["debug"])
+            success = VP.update(debug=False)
             out_str = ""
             for cam_name, result, msg in success:
                 if result:
@@ -310,7 +309,6 @@ def RunVisionPipe():
                 else:
                     out_str += f"   {cam_name}: FAILED ({msg})\n"
             print(f"{len(VP.track_strings)=} Update Status:\n{out_str}")
-            VP.publish_viz()
             time.sleep(1)
     except KeyboardInterrupt:
         print("Shutting down...")
