@@ -127,19 +127,20 @@ class VisionPipe:
 
     def merge_candidate(self, candidate_box, candidate_prob, candidate_pcd, candidate_rgb_mask, candidate_depth_mask, obj_str, n_considered):
         #calculate the 3D IoU with all tracked objects
-        #USE IQR to determine matches
         ious = [iou_3d(candidate_box, box) for box in self.tracked_objects[obj_str]["boxes"][:n_considered]]
         try:
             max_iou = max(ious)
         except Exception as e:
-            print(f"[VisionPipe update_tracked_objects] Exception {e} with ious {ious=} for object {obj_str} {len(self.tracked_objects[obj_str]['boxes'])=} {len(self.tracked_objects[obj_str]['pcds'])=} {n_considered=}")
-            raise ValueError(f"[VisionPipe update_tracked_objects] Exception {e} with ious {ious=} for object {obj_str} {len(self.tracked_objects[obj_str]['boxes'])=} {len(self.tracked_objects[obj_str]['pcds'])=} {n_considered=}")
-        q1 = np.percentile(ious, 25)
-        q3 = np.percentile(ious, 75)
-        iqr = q3 - q1
-        upper_bound = q3 + 1.5 * iqr
+            print(f"[VisionPipe merge_candidate] Exception {e} with ious {ious=} for object {obj_str} {len(self.tracked_objects[obj_str]['boxes'])=} {len(self.tracked_objects[obj_str]['pcds'])=} {n_considered=}")
+            max_iou = 0.0
+            #raise ValueError(f"[VisionPipe merge_candidate] Exception {e} with ious {ious=} for object {obj_str} {len(self.tracked_objects[obj_str]['boxes'])=} {len(self.tracked_objects[obj_str]['pcds'])=} {n_considered=}")
+        # q1 = np.percentile(ious, 25)
+        # q3 = np.percentile(ious, 75)
+        # iqr = q3 - q1
+        # upper_bound = q3 + 1.5 * iqr
         match_idx = None
         #If the max IoU is below the threshold, add the candidate as a new object
+        upper_bound = config["iou3d_match_threshold"]
         if max_iou < upper_bound:
             self.tracked_objects[obj_str]["boxes"].append(candidate_box)
             self.tracked_objects[obj_str]["pcds"].append(candidate_pcd)
@@ -279,7 +280,7 @@ class VisionPipe:
 if __name__ == "__main__":
     from realsense_devices import RealSenseCamera
     import open3d.visualization.gui as gui
-    import threading
+    import cv2
 
     vp = VisionPipe()
     camera = RealSenseCamera()
@@ -313,32 +314,32 @@ if __name__ == "__main__":
         app.add_window(vis)
         app.run_one_tick()
 
-        last_update = vp.update_count
-        def thread_func():
-            last_update_time = time.time() - config["pose_expire_time"]-1
-            while vis.is_visible and camera.open:
-                data = camera.get_data()
-                rgb_img = data["color_img"]
-                depth_img = data["depth_img"]*camera.depth_scale
-                if time.time() - last_update_time > config["pose_expire_time"]:    
-                    print("\n\n")
-                    success, message = vp.update(rgb_img, depth_img, queries, intrinsics, obs_pose, time_stamp=time.time(), debug=False)
-                    print(f"Update success: {success}, message: {message}")
-                    if success:
-                        last_update_time = time.time()
-                    print("\n\n")
-        thread = threading.Thread(target=thread_func, daemon=True)
-        thread.start()
-        print("\n\n\n")
-        #while vis.is_visible:
+        last_update_time = time.time() - config["pose_expire_time"]-1
+               
+                    
         i = 0
-        while i < 10:
-            if vp.update_count != last_update:
-                last_update = vp.update_count
+        exit_flag = False
+        while vis.is_visible and camera.open and not exit_flag: #and i < 10:
+            data = camera.get_data()
+            rgb_img = data["color_img"]
+            depth_img = data["depth_img"]*camera.depth_scale
+            # --- OpenCV Windows---
+            cv2.imshow("Color", data["color_img"])
+            d_norm = cv2.normalize(data["depth_img"], None, 255, 0, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            cv2.imshow("Depth", d_norm)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                exit_flag = True
+            if time.time() - last_update_time > config["pose_expire_time"]:    
+                success, message = vp.update(rgb_img, depth_img, queries, intrinsics, obs_pose, time_stamp=time.time(), debug=False)
+                print(f"Update success: {success}, message: {message}")
+                if success:
+                    last_update_time = time.time()
+        
                 vis.clear_3d_labels()
 
                 for q in queries:
                     q_pcd, q_prob = vp.query(q)
+                    # print(f"{q} {q_prob=}")
                     if q_prob == 0.0:
                         continue
                     bbox = q_pcd.get_axis_aligned_bounding_box()

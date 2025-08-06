@@ -29,6 +29,7 @@
     "radius_nb_points": 2,
     
     "remove_belief_threshold": 0.25,
+    "iou3d_match_threshold": 0.9,
     
     "test_querys": [
         "coke can",
