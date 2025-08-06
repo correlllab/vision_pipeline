@@ -3,47 +3,47 @@
     "vlm_true_positive_rate": 0.60,
     "vlm_false_negative_rate": 0.10,
     "gemini_max_retries": 4,
+
     "owl_min_2d_box_side": 0,
     "owl_iou_2d_reduction": 0.3,
     "owlv2_discard_percentile": 0.75,
     "owlv2_sigmoid_gain": 1,
-    "backbone": "owl",
+
+    "backbone": "yoloworld",
+
+    "sam2_model": "facebook/sam2-hiera-large",
+
+
     "min_3d_points": 20,
     "voxel_size": 0.001,
+    "pose_expire_time": 1,
+    "change_in_pose_threshold": 0.1,
+    "vis_k": 10,
+
+
     "statistical_outlier_removal": false,
     "statistical_nb_neighbors": 100,
     "statistical_std_ratio": 0.5,
-    "radius_outlier_removal": false,
+    "radius_outlier_removal": true,
     "radius_radius": 0.8,
     "radius_nb_points": 2,
+    
     "remove_belief_threshold": 0.25,
+    
     "test_querys": [
         "coke can",
         "wrench",
         "drill",
-        "screwdriver"
+        "screwdriver",
+        "tape measure",
+        "cat"
     ],
-    "pose_expire_time": 10,
-    "change_in_pose_threshold": 0.1,
-    "vis_k": 10,
-    "rs_names": [
-        "head",
-        "left_hand"
+    
+    "rs_name_spaces": [
+        "/realsense/head",
+        "/realsense/left_hand"
     ],
-    "rs_serials": [
-        "_250122072330",
-        "_838212072778"
-    ],
-    "rs_frames": [
-        "head_camera_link",
-        "left_hand_camera_link"
-    ],
-    "rs_width": 424,
-    "rs_height": 240,
-    "rs_fps": 6,
     "camera_min_range_m": 0.3,
     "camera_max_range_m": 3.0,
-    "debug": false,
-    "base_frame": "map",
-    "accumulate_time_s":10
+    "base_frame": "map"
 }

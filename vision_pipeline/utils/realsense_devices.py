@@ -3,6 +3,8 @@ import cv2
 import open3d as o3d
 import numpy as np
 import time
+import open3d.visualization.gui as gui
+
 def list_realsense_devices():
     # Create a context object to manage devices
     context = rs.context()
@@ -60,6 +62,7 @@ class RealSenseCamera:
 
         depth_sensor = profile.get_device().first_depth_sensor()
         self.depth_scale = depth_sensor.get_depth_scale()
+        self.open = True
 
     def get_calibration_data(self, profile):
         """Fetches and stores all static calibration data."""
@@ -121,6 +124,7 @@ class RealSenseCamera:
         """Stops the pipeline."""
         print("Stopping RealSense pipeline...")
         self.pipeline.stop()
+        self.open = False
 
 
 def pointcloud_intersection(pcd1, pcd2, radius=0.005):
@@ -157,61 +161,72 @@ def pointcloud_intersection(pcd1, pcd2, radius=0.005):
 
 if __name__ == "__main__":
     camera = None
-    data = None
+    
+    # Initialize the GUI application
+    app = gui.Application.instance
+    app.initialize()
 
-    # Create the visualizer and window
-    vis = o3d.visualization.Visualizer()
-    vis.create_window(window_name='PCD Animation')
+    # Create the visualizer window
+    vis = o3d.visualization.O3DVisualizer("RealSense 3D Viewer", 1024, 768)
+    vis.show_settings = True
 
-    # Add the geometry to the scene ONCE before the loop
+    # Add a coordinate frame for reference
+    coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
+    vis.add_geometry("frame", coord_frame)
+
+    # Add an initial, empty point cloud as a placeholder.
+    # We will replace this in the loop.
     pcd = o3d.geometry.PointCloud()
-    vis.add_geometry(pcd)
-    coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
-            size=0.5, origin=[0, 0, 0]
-        )
-    vis.add_geometry(coord_frame)
-
+    vis.add_geometry("pcd", pcd)
+    
+    # Set a default camera view
+    vis.reset_camera_to_default()
+    app.add_window(vis)
     try:
         # Initialize the camera
         camera = RealSenseCamera()
-        data = camera.get_data()
-
-
-        exit = False
-        while not exit:
-            # Get data from the camera
+        
+        exit_flag = False
+        while not exit_flag:
+            # Get the latest frame from the camera
             data = camera.get_data()
             if not data:
                 continue
 
-            # --- OpenCV Windows ---
+            # --- OpenCV Windows (Optional) ---
             cv2.imshow("Color", data["color_img"])
-            d_norm = cv2.normalize(data["depth_img"], None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            d_norm = cv2.normalize(data["depth_img"], None, 255, 0, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
             cv2.imshow("Depth", d_norm)
             if cv2.waitKey(1) & 0xFF == ord('q'):
-                exit = True
+                exit_flag = True
             
-            # print(f"{data['vertices'].shape=}")
-            pcd.points = o3d.utility.Vector3dVector(data['vertices'])
-            pcd.colors = o3d.utility.Vector3dVector(data['colors'])
+            # --- CORRECT GEOMETRY UPDATE LOGIC ---
+            # 1. Create a new PointCloud object with the new data.
+            pcd_new = o3d.geometry.PointCloud()
+            pcd_new.points = o3d.utility.Vector3dVector(data['vertices'])
+            pcd_new.colors = o3d.utility.Vector3dVector(data['colors'])
             
-            # Tell the visualizer that the pcd object has been updated
-            pcd.voxel_down_sample(voxel_size=0.01)
-            vis.update_geometry(pcd)
+            # 2. Downsample the new point cloud. This returns another new object.
+            pcd_downsampled = pcd_new.voxel_down_sample(voxel_size=0.001)
             
-            # Process window events and redraw the scene
-            vis.poll_events()
-            vis.update_renderer()
+            # 3. Remove the old geometry and add the new one. This is the correct
+            #    way to update the scene with a new object.
+            vis.remove_geometry("pcd")
+            vis.add_geometry("pcd", pcd_downsampled)
+            
+            # Process one frame of the GUI event loop to update the window
+            app.run_one_tick()
            
-                
     except Exception as e:
         print(f"An error occurred: {e}")
     finally:
+        # --- Cleanup ---
         print("Cleaning up...")
         if camera:
             camera.stop()
         cv2.destroyAllWindows()
-        vis.destroy_window()
+        vis.close()
+        app.quit()
 
 
 

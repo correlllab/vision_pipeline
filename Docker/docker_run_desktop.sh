@@ -14,6 +14,7 @@ docker run --rm -it \
   --device /dev/bus/usb:/dev/bus/usb \
   -v /dev:/dev \
   -e DISPLAY="$DISPLAY" \
+  -e XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   -v /etc/localtime:/etc/localtime:ro \
   -v /etc/timezone:/etc/timezone:ro \

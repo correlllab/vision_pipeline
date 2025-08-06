@@ -1,7 +1,8 @@
 FROM osrf/ros:humble-desktop-full
 
 WORKDIR /ros2_ws
-
+ENV NVIDIA_VISIBLE_DEVICES all
+ENV NVIDIA_DRIVER_CAPABILITIES graphics,utility,compute
 # Remove any old/expired ROS 2 apt entry
 RUN rm /etc/apt/sources.list.d/ros2-latest.list || true
 

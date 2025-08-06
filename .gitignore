@@ -6,3 +6,4 @@ API_KEYS.py
 *.pt
 EV_components/
 Roboflow_Components/
+output.prof

@@ -36,6 +36,7 @@ import sys
 
 
 from ultralytics import YOLOWorld
+import numpy as np
 
 """
 Cheat Imports
@@ -130,7 +131,7 @@ Never return masks or code fencing.
             )
         )
 
-    def get_json_response(self, img, queries, debug=True):
+    def get_json_response(self, img, queries, debug):
         text_responses = []
         errors = []
         success = False
@@ -146,7 +147,7 @@ Never return masks or code fencing.
                     config = self.config,
                 )
                 if debug:
-                    print(f"GeminiResponse: {raw_response}")
+                    print(f"[Gemini_BB get_json_response] GeminiResponse: {raw_response}")
                 text_response = raw_response.text
                 text_responses.append(text_response)
                 json_text_response = parse_gemini_json(text_response)
@@ -154,7 +155,7 @@ Never return masks or code fencing.
                 success = True
                 if debug:
                     print()
-                    print(f"Gemini Response:")
+                    print(f"[Gemini_BB get_json_response] Gemini Response:")
                     print(f"   {img.shape=},  {pil_img} \n{prompt=}")
                     print(f"   {raw_response=}")
                     print(f"   {text_response=}")
@@ -164,8 +165,8 @@ Never return masks or code fencing.
 
             except Exception as e:
                 errors.append(e)
-                print(f"Gemini try {len(errors)} Error: {e} Response: {text_response[-1]}")
-                print("Retrying...")
+                print(f"[Gemini_BB get_json_response] Gemini try {len(errors)} Error: {e} Response: {text_response[-1]}")
+                print(f"[Gemini_BB get_json_response] Retrying...")
                 continue
 
         if not success or json_response is None:
@@ -176,7 +177,7 @@ Never return masks or code fencing.
             assert len(detection["box_2d"]) == 4, f"Gemini response 'box_2d' does not contain 4 elements: {detection}"
         return json_response
 
-    def predict(self, img, queries, debug=True):
+    def predict(self, img, queries, debug):
         """
         Parameters:
         - img: image to produce bounding boxes in
@@ -212,7 +213,15 @@ Never return masks or code fencing.
                 candidates_2d[label]["boxes"].append(bbox)
                 candidates_2d[label]["probs"].append(config["vlm_true_positive_rate"])
         for label in candidates_2d.keys():
-            candidates_2d[label]["probs"] = torch.tensor(candidates_2d[label]["probs"], dtype=torch.float32)
+            try:
+                probs_np = np.array(candidates_2d[label]["probs"], dtype=np.float32)
+                candidates_2d[label]["probs"] = torch.from_numpy(probs_np)
+                # candidates_2d[label]["probs"] = torch.tensor(candidates_2d[label]["probs"], dtype=torch.float32)
+            except Exception as e:
+                print(f"[Gemini_BB predict] an exception occured {e} when converting probs to tensor {candidates_2d[label]['probs']=} {type(candidates_2d[label]['probs'])=}")
+                raise TypeError( f"[Gemini_BB predict] an exception occured {e} when converting probs to tensor {candidates_2d[label]['probs']=} {type(candidates_2d[label]['probs'])=}")
+            if debug:
+                print(f"[Gemini_BB predict] {label=} probs:{candidates_2d[label]['probs'].shape=} boxes:{len(candidates_2d[label]['boxes'])=}")
         return candidates_2d
 
 
@@ -233,7 +242,7 @@ class OWLv2:
         self.model.to(self.device)
         self.model.eval()  # set model to evaluation mode
 
-    def get_initial_candidates(self, img, queries, debug=False):
+    def get_initial_candidates(self, img, queries, debug):
         #Preprocess inputs
         inputs = self.processor(text=queries, images=img, return_tensors="pt")
         inputs.to(self.device)
@@ -249,6 +258,11 @@ class OWLv2:
         labels = results["labels"]
         boxes = results["boxes"]
         scores = results["scores"]
+        if debug:
+            print(f"[Owlv2 get_initial_candidates] Original {labels.shape=}]")
+            print(f"[Owlv2 get_initial_candidates] Original {boxes.shape=}]")
+            print(f"[Owlv2 get_initial_candidates] Original {scores.shape=}]")
+
 
         boxes = clip_boxes_to_image(boxes, img.shape[:2])
 
@@ -257,11 +271,19 @@ class OWLv2:
         boxes = boxes[keep]
         scores = scores[keep]
         labels = labels[keep]
+        if debug:
+            print(f"[Owlv2 get_initial_candidates] Small Boxes Removed {labels.shape=}]")
+            print(f"[Owlv2 get_initial_candidates] Small Boxes Removed {boxes.shape=}]")
+            print(f"[Owlv2 get_initial_candidates] Small Boxes Removed {scores.shape=}]")
 
         keep = nms(boxes, scores, iou_threshold=config["owl_iou_2d_reduction"])
         boxes = boxes[keep]
         scores = scores[keep]
         labels = labels[keep]
+        if debug:
+            print(f"[Owlv2 get_initial_candidates] NMS {labels.shape=}]")
+            print(f"[Owlv2 get_initial_candidates] NMS {boxes.shape=}]")
+            print(f"[Owlv2 get_initial_candidates] NMS {scores.shape=}]")
 
         return boxes, scores, labels
 
@@ -276,7 +298,7 @@ class OWLv2:
         mean_score = scores.mean()
         return F.sigmoid((scores-mean_score) * config["owlv2_sigmoid_gain"])
 
-    def predict(self, img, queries, debug = False):
+    def predict(self, img, queries, debug):
         """
         Parameters:
         - img: image to produce bounding boxes in
@@ -287,6 +309,10 @@ class OWLv2:
         """
         label_lookup = {i: label for i, label in enumerate(queries)}
         boxes, scores, labels = self.get_initial_candidates(img, queries, debug)
+        if debug:
+            print(f"[Owlv2 predict] {labels.shape=}]")
+            print(f"[Owlv2 predict] {boxes.shape=}]")
+            print(f"[Owlv2 predict] {scores.shape=}]")
         #get integer to text label mapping
         out_dict = {}
         #for each query, get the boxes and scores and perform NMS
@@ -309,7 +335,8 @@ class OWLv2:
 
             # Update output dictionary
             out_dict[text_label] = {"probs": self.get_probs(percentile_scores), "boxes": percentile_boxes.tolist()}
-
+            if debug:
+                print(f"[Owlv2 predict] {text_label=} probs:{out_dict[text_label]['probs'].shape=} boxes:{len(out_dict[text_label]['boxes'])=}")
         return out_dict
 
     def __str__(self):
@@ -328,7 +355,7 @@ class YOLO_WORLD:
         #print(f"YOLO World model loaded on {self.model.device}")
         #print(f"{dir(self.model)=}")
 
-    def predict(self, img, queries, debug=False):
+    def predict(self, img, queries, debug):
         """
         Parameters:
         - img: image to produce bounding boxes in
@@ -338,8 +365,9 @@ class YOLO_WORLD:
         - out_dict: dictionary containing a list of bounding boxes and a list of probabilities for each query
         """
         self.model.set_classes(queries)
-        results = self.model.predict(img, show=debug)[0]
-        print(f"{dir(results.boxes)=}")
+        results = self.model.predict(img, show=debug, verbose=debug)[0]
+        if debug:
+            print(f"[YOLO_WORLD predict]{dir(results.boxes)=}")
         boxes = results.boxes.xyxy       # shape (N, 4)
         probs = results.boxes.conf      # shape (N,)
         cls_ids= results.boxes.cls.long()  # shape (N,)
@@ -356,22 +384,31 @@ class YOLO_WORLD:
                 "boxes":  selected_boxes,
                 "probs": selected_probs
             }
+            if debug:
+                print(f"[YOLO_WORLD predict] {query=} probs:{out_dict[query]['probs'].shape=} boxes:{len(out_dict[query]['boxes'])=}")
+        
+            
 
         return out_dict
 if __name__ == "__main__":
-    # Test the Gemini_BB and OWLv2 classes
-    img = cv2.imread("./ExampleImages/RGB_Table.jpg")
-    queries = ["drill", "scissors", "soda can", "screwdriver", "wrench", "cat"]
+    from realsense_devices import RealSenseCamera
+    camera = RealSenseCamera()
+    data = camera.get_data()
+    img = data["color_img"]
 
+    queries = config["test_querys"]
+    do_debug = True
+    # Test the Gemini_BB
     gemini_bb = Gemini_BB()
-    gemini_results = gemini_bb.predict(img, queries, debug=True)
+    gemini_results = gemini_bb.predict(img, queries, debug=do_debug)
     display_2dCandidates(img, gemini_results, window_prefix="Gemini_")
 
-
+    # Test the OWLv2
     owl_v2 = OWLv2()
-    owl_results = owl_v2.predict(img, queries, debug=True)
+    owl_results = owl_v2.predict(img, queries, debug=do_debug)
     display_2dCandidates(img, owl_results, window_prefix="OWLv2_")
 
+    # Test the YOLO_WORLD
     yolo_world = YOLO_WORLD()
-    yolo_results = yolo_world.predict(img, queries, debug=True)
+    yolo_results = yolo_world.predict(img, queries, debug=do_debug)
     display_2dCandidates(img, yolo_results, window_prefix="YOLOWorld_")

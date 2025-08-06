@@ -83,25 +83,24 @@ def get_points_and_colors(depths, rgbs, fx, fy, cx, cy):
 
 #Class to use sam2
 class SAM2_PC:
-    def __init__(self,):
+    def __init__(self):
         """
         Initializes the SAM2 model and processor.
         Parameters:
         - iou_th: IoU threshold for NMS
         """
-        self.sam_predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2-hiera-large")
+        self.sam_predictor = SAM2ImagePredictor.from_pretrained(config["sam2_model"])
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        self.device = torch.device("mps") if torch.backends.mps.is_available() else self.device
 
-    def get_masks(self, rgb_img, depth_img, bbox, debug=False):
+    def get_masks(self, rgb_img, depth_img, bbox, debug):
         #Run sam2 on all the boxes
         if debug:
-            print(f"[get_masks] rgb_img.shape = {rgb_img.shape}")
-            print(f"[get_masks] depth_img.shape = {depth_img.shape}")
-            print(f"[get_masks] bbox = {bbox}, type = {type(bbox)}, np.array(bbox).shape = {np.array(bbox).shape}")
+            print(f"[SAM2_PC get_masks] rgb_img.shape = {rgb_img.shape}")
+            print(f"[SAM2_PC get_masks] depth_img.shape = {depth_img.shape}")
+            print(f"[SAM2_PC get_masks] bbox = {bbox}, type = {type(bbox)}, np.array(bbox).shape = {np.array(bbox).shape}")
         if len(bbox) == 0:
             if debug:
-                print("[get_masks] no boxes to process, returning empty masks")
+                print("[SAM2_PC get_masks] no boxes to process, returning empty masks")
             return  None, None
         self.sam_predictor.set_image(rgb_img.copy())
         sam_mask = None
@@ -111,15 +110,15 @@ class SAM2_PC:
             warnings.simplefilter("ignore", category=UserWarning)
             original_sam_mask, sam_scores, sam_logits = self.sam_predictor.predict(box=bbox)
         if debug:
-            print(f"[get_masks] original_sam_mask.shape = {original_sam_mask.shape}")
-            print(f"[get_masks] sam_scores.shape = {sam_scores.shape}")
-            print(f"[get_masks] sam_logits.shape = {sam_logits.shape}")
+            print(f"[SAM2_PC get_masks] original_sam_mask.shape = {original_sam_mask.shape}")
+            print(f"[SAM2_PC get_masks] sam_scores.shape = {sam_scores.shape}")
+            print(f"[SAM2_PC get_masks] sam_logits.shape = {sam_logits.shape}")
         if original_sam_mask.ndim == 3:
             # single mask → add batch axis
             original_sam_mask = original_sam_mask[np.newaxis, ...]
         sam_mask = np.all(original_sam_mask, axis=1)
         if debug:
-            print(f"{sam_mask.shape=}")
+            print(f"[SAM2_PC get_masks] {sam_mask.shape=}")
 
 
         #Apply mask to the depth and rgb images
@@ -128,9 +127,10 @@ class SAM2_PC:
         masked_rgb = rgb_img[None, ...] * sam_mask[..., None]
         return masked_depth, masked_rgb
 
-    def get_pcd_bbox(self, pts, cls, transformation_matrix):
+    def get_pcd_bbox(self, pts, cls, transformation_matrix, debug):
         # build Open3D PointCloud
-        print(f"\n\n[get_pcd_bbox] {len(pts)=} {len(cls)=}")
+        if debug:
+            print(f"\n\n[SAM2_PC get_pcd_bbox] {len(pts)=} {len(cls)=}")
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(pts.numpy())
         pcd.colors = o3d.utility.Vector3dVector(cls.numpy()/255)
@@ -141,16 +141,17 @@ class SAM2_PC:
         if config["radius_outlier_removal"]:
             pcd, ind = pcd.remove_radius_outlier(nb_points=config["radius_nb_points"], radius=config["radius_radius"])
         pcd = pcd.transform(transformation_matrix)
-        print(f"[get_pcd_bbox] {pcd=}")
         bbox = pcd.get_axis_aligned_bounding_box()
-        print(f"[get_pcd_bbox] {bbox=}")
+        if debug:
+            print(f"[SAM2_PC get_pcd_bbox] {pcd=}")
+            print(f"[SAM2_PC get_pcd_bbox] {bbox=}")
 
         bbox.color = (1.0, 0.0, 0.0)  # red
 
         return pcd, bbox
 
 
-    def predict(self, rgb_img, depth_img, bbox, probs, intrinsics, obs_pose, debug = False, query_str=""):
+    def predict(self, rgb_img, depth_img, bbox, probs, intrinsics, obs_pose, debug, query_str=""):
         """
         Predicts 3D point clouds from RGB and depth images and bounding boxes using SAM2.
         Cleans up the point clouds and applies NMS.
@@ -166,14 +167,14 @@ class SAM2_PC:
         - reduced_probs: List of reduced scores
         """
         if debug:
-            print(f"[predict] Received {len(bbox)} boxes, probs shape = {probs.shape}")
-            print(f"[predict] query_str = {query_str}")
+            print(f"[SAM2_PC predict] Received {len(bbox)} boxes, probs shape = {probs.shape}")
+            print(f"[SAM2_PC predict] query_str = {query_str}")
         masked_depth, masked_rgb = self.get_masks(rgb_img, depth_img, bbox, debug=debug)
         if masked_depth is None or masked_rgb is None:
             return [], [], torch.tensor([]), [], []
         if debug:
-            print(f"[predict] masked_depth.shape = {masked_depth.shape}")
-            print(f"[predict] masked_rgb.shape   = {masked_rgb.shape}")
+            print(f"[SAM2_PC predict] masked_depth.shape = {masked_depth.shape}")
+            print(f"[SAM2_PC predict] masked_rgb.shape   = {masked_rgb.shape}")
         tensor_depth = torch.from_numpy(masked_depth).to(self.device)
         tensor_rgb = torch.from_numpy(masked_rgb).to(self.device)
 
@@ -184,7 +185,7 @@ class SAM2_PC:
         points, colors = get_points_and_colors(tensor_depth, tensor_rgb, fx, fy, cx, cy)
         colors = colors[..., [2, 1, 0]]
         if debug:
-            print(f"{points.shape=}, {colors.shape=}")
+            print(f"[SAM2_PC predict] {points.shape=}, {colors.shape=}")
 
         B, N, _ = points.shape
 
@@ -206,12 +207,12 @@ class SAM2_PC:
             depths = pts[:, 2]
             valid = (depths > config["camera_min_range_m"]) & (depths < config["camera_max_range_m"])
             if debug:
-                print(f"{valid.sum()=}")
+                print(f"[SAM2_PC predict] {valid.sum()=}")
             if valid.sum() < config["min_3d_points"]:
                 continue
             pts = pts[valid]
             cls = cls[valid]
-            pcd, bbox = self.get_pcd_bbox(pts, cls, transformation_matrix)
+            pcd, bbox = self.get_pcd_bbox(pts, cls, transformation_matrix, debug=debug)
 
             pcds.append(pcd)
             bounding_boxes_3d.append(bbox)
@@ -247,22 +248,31 @@ def display_3dCandidates(predicitons, window_prefix = ""):
     app.run()
 
 if __name__ == "__main__":
-    # Example usage
+    from realsense_devices import RealSenseCamera
+    camera = RealSenseCamera()
+    data = camera.get_data()
+
+
     sam2 = SAM2_PC()
-    rgb_img = cv2.imread("./ExampleImages/MushroomRGB.jpeg")
-    depth_img = cv2.imread("./ExampleImages/MushroomDepth.png")
-    depth_img = cv2.cvtColor(depth_img, cv2.COLOR_BGR2GRAY)
-    center_x = rgb_img.shape[1] // 2
-    center_y = rgb_img.shape[0] // 2
-    intrinsics = {"fx": 500, "fy": 500, "cx": center_x, "cy": center_y}  # Example intrinsics
+    rgb_img = data["color_img"]
+    depth_img = data["depth_img"]*camera.depth_scale
+    fx=data['color_intrinsics'].fx
+    fy=data['color_intrinsics'].fy
+    cx=data['color_intrinsics'].ppx
+    cy=data['color_intrinsics'].ppy
+    intrinsics = {"fx": fx, "fy": fx, "cx": cx, "cy": cy}
 
-    from BBBackBones import OWLv2, YOLO_WORLD, display_2dCandidates
-    bb = OWLv2()
-    queries = ["mushroom"]
-    bb_results = bb.predict(rgb_img, queries, debug=False)
+    from BBBackBones import OWLv2, YOLO_WORLD, Gemini_BB, display_2dCandidates
+    bb = YOLO_WORLD()
+    queries = config["test_querys"]
+    bb_results = bb.predict(rgb_img, queries, debug=True)
     display_2dCandidates(rgb_img, bb_results, window_prefix="BB_")
-    print(f"{len(bb_results['mushroom']['boxes'])=}, {len(bb_results['mushroom']['probs'])=}")
-
-    pcds, bboxes, probs, masked_rgb, masked_depth = sam2.predict(rgb_img, depth_img, bb_results["mushroom"]["boxes"], bb_results["mushroom"]["probs"], intrinsics, [0,0,0,0,0,0], debug=True)
-    candidates_3d = {"mushroom": {"pcds": pcds, "boxes": bboxes, "probs": probs, "masked_rgb": masked_rgb, "masked_depth": masked_depth}}
+    print("\n\n")
+   
+    candidates_3d = {}
+    for obj in bb_results.keys():
+        print(f"Processing {obj} {len(bb_results[obj]['boxes'])=} {len(bb_results[obj]['boxes'])=}")
+        pcds, bboxes, probs, masked_rgb, masked_depth = sam2.predict(rgb_img, depth_img, bb_results[obj]["boxes"], bb_results[obj]["probs"], intrinsics, [0,0,0,0,0,0], debug=False, query_str=obj)
+        candidates_3d[obj] = {"pcds": pcds, "boxes": bboxes, "probs": probs, "masked_rgb": masked_rgb, "masked_depth": masked_depth}
+        print("\n\n")
     display_3dCandidates(candidates_3d, window_prefix="SAM2_")
