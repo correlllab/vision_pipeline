@@ -6,16 +6,16 @@ and return a dictionary with the following structure:
 {
     "query_object_1": {
         "boxes": [[x1, y1, x2, y2], ...],
-        "probs": torch.tensor([prob1, prob2, ...])
+        "probs": [prob1, prob2, ...]
     },
     "query_object_2": {
         "boxes": [[x1, y1, x2, y2], ...],
-        "probs": torch.tensor([prob1, prob2, ...])
+        "probs": [prob1, prob2, ...]
     },
     ...
     "query_object_N": {
         "boxes": [[x1, y1, x2, y2], ...],
-        "probs": torch.tensor([prob1, prob2, ...])
+        "probs": [prob1, prob2, ...]
     }
 }
 
@@ -27,7 +27,6 @@ import cv2
 from PIL import Image
 
 import json
-import torch.nn.functional as F
 from torchvision.ops import clip_boxes_to_image, remove_small_boxes, nms
 from transformers import OwlViTProcessor, OwlViTForObjectDetection
 import os
@@ -63,15 +62,15 @@ os.makedirs(os.path.join(fig_dir, "Gemini"), exist_ok=True)
 from API_KEYS import GEMINI_KEY
 
 
-def display_2dCandidates(img, predicitons, window_prefix = ""):
-    for query_object, prediction in predicitons.items():
+def display_2dCandidates(img, predictions, window_prefix = ""):
+    for query_object, prediction in predictions.items():
         display_img = img.copy()
         for bbox, prob in zip(prediction["boxes"], prediction["probs"]):
             x_min, y_min, x_max, y_max = map(int, bbox)
             cv2.rectangle(display_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
             cv2.putText(display_img, f"{query_object} {prob:.4f}", (x_min, y_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         # Display the image with bounding boxes
-        cv2.imwrite(f"{fig_dir}/OWLV2/{window_prefix}{query_object}.png", display_img)
+        cv2.imwrite(f"{fig_dir}/OWLv2/{window_prefix}{query_object}.png", display_img)
         cv2.imshow(f"{window_prefix}{query_object}", display_img)
         cv2.waitKey(1)
     cv2.waitKey(0)
@@ -165,7 +164,7 @@ Never return masks or code fencing.
 
             except Exception as e:
                 errors.append(e)
-                print(f"[Gemini_BB get_json_response] Gemini try {len(errors)} Error: {e} Response: {text_response[-1]}")
+                print(f"[Gemini_BB get_json_response] Gemini try {len(errors)} Error: {e} Response: {text_response}")
                 print(f"[Gemini_BB get_json_response] Retrying...")
                 continue
 
@@ -213,15 +212,8 @@ Never return masks or code fencing.
                 candidates_2d[label]["boxes"].append(bbox)
                 candidates_2d[label]["probs"].append(config["vlm_true_positive_rate"])
         for label in candidates_2d.keys():
-            try:
-                probs_np = np.array(candidates_2d[label]["probs"], dtype=np.float32)
-                candidates_2d[label]["probs"] = torch.from_numpy(probs_np)
-                # candidates_2d[label]["probs"] = torch.tensor(candidates_2d[label]["probs"], dtype=torch.float32)
-            except Exception as e:
-                print(f"[Gemini_BB predict] an exception occured {e} when converting probs to tensor {candidates_2d[label]['probs']=} {type(candidates_2d[label]['probs'])=}")
-                raise TypeError( f"[Gemini_BB predict] an exception occured {e} when converting probs to tensor {candidates_2d[label]['probs']=} {type(candidates_2d[label]['probs'])=}")
             if debug:
-                print(f"[Gemini_BB predict] {label=} probs:{candidates_2d[label]['probs'].shape=} boxes:{len(candidates_2d[label]['boxes'])=}")
+                print(f"[Gemini_BB predict] {label=} probs:{len(candidates_2d[label]['probs'])=} boxes:{len(candidates_2d[label]['boxes'])=}")
         return candidates_2d
 
 
@@ -296,7 +288,7 @@ class OWLv2:
         - probabilities: torch.Tensor containing the normalized scores
         """
         mean_score = scores.mean()
-        return F.sigmoid((scores-mean_score) * config["owlv2_sigmoid_gain"])
+        return torch.sigmoid((scores-mean_score) * config["owlv2_sigmoid_gain"])
 
     def predict(self, img, queries, debug):
         """
@@ -305,7 +297,7 @@ class OWLv2:
         - queries: list of strings whos bounding boxes we want
         - debug: if True, prints debug information
         Returns:
-        - out_dict: dictionary containing a list of bounding boxes and a list of scores for each query
+        - candidates_2d: dictionary containing a list of bounding boxes and a list of scores for each query
         """
         label_lookup = {i: label for i, label in enumerate(queries)}
         boxes, scores, labels = self.get_initial_candidates(img, queries, debug)
@@ -314,7 +306,7 @@ class OWLv2:
             print(f"[Owlv2 predict] {boxes.shape=}]")
             print(f"[Owlv2 predict] {scores.shape=}]")
         #get integer to text label mapping
-        out_dict = {}
+        candidates_2d = {}
         #for each query, get the boxes and scores and perform NMS
         for i, label in enumerate(queries):
             text_label = label_lookup[i]
@@ -334,10 +326,10 @@ class OWLv2:
             percentile_scores = instance_scores[keep]
 
             # Update output dictionary
-            out_dict[text_label] = {"probs": self.get_probs(percentile_scores), "boxes": percentile_boxes.tolist()}
+            candidates_2d[text_label] = {"probs": self.get_probs(percentile_scores).tolist(), "boxes": percentile_boxes.tolist()}
             if debug:
-                print(f"[Owlv2 predict] {text_label=} probs:{out_dict[text_label]['probs'].shape=} boxes:{len(out_dict[text_label]['boxes'])=}")
-        return out_dict
+                print(f"[Owlv2 predict] {text_label=} probs:{len(candidates_2d[text_label]['probs'])=} boxes:{len(candidates_2d[text_label]['boxes'])=}")
+        return candidates_2d
 
     def __str__(self):
         return f"OWLv2: {self.model.device}"
@@ -345,7 +337,7 @@ class OWLv2:
         return self.__str__()
 
 class YOLO_WORLD:
-    def __init__(self, checkpoint_file="YoloWorldL.pth", config_path=None, device="cuda:0"):
+    def __init__(self, checkpoint_file="YoloWorldL.pth", config_path=None):
         """
         Initializes the YOLO World model.
         """
@@ -362,34 +354,32 @@ class YOLO_WORLD:
         - queries: list of strings whos bounding boxes we want
         - debug: if True, prints debug information
         Returns:
-        - out_dict: dictionary containing a list of bounding boxes and a list of probabilities for each query
+        - candidates_2d: dictionary containing a list of bounding boxes and a list of probabilities for each query
         """
         self.model.set_classes(queries)
-        results = self.model.predict(img, show=debug, verbose=debug)[0]
+        results = self.model.predict(img, show=False, verbose=debug)[0]
         if debug:
             print(f"[YOLO_WORLD predict]{dir(results.boxes)=}")
         boxes = results.boxes.xyxy       # shape (N, 4)
         probs = results.boxes.conf      # shape (N,)
         cls_ids= results.boxes.cls.long()  # shape (N,)
-        out_dict = {}
+        candidates_2d = {}
         for idx, query in enumerate(queries):
             # mask for detections of this class
             mask = cls_ids == idx
 
             # convert to Python lists / tensors
             selected_boxes  = boxes[mask].tolist()          # list of [x1,y1,x2,y2]
-            selected_probs = probs[mask]                  # tensor of shape (K,)
+            selected_probs = probs[mask].tolist()                  # tensor of shape (K,)
 
-            out_dict[query] = {
+            candidates_2d[query] = {
                 "boxes":  selected_boxes,
                 "probs": selected_probs
             }
             if debug:
-                print(f"[YOLO_WORLD predict] {query=} probs:{out_dict[query]['probs'].shape=} boxes:{len(out_dict[query]['boxes'])=}")
+                print(f"[YOLO_WORLD predict] {query=} probs:{len(candidates_2d[query]['probs'])=} boxes:{len(candidates_2d[query]['boxes'])=}")
         
-            
-
-        return out_dict
+        return candidates_2d
 if __name__ == "__main__":
     from realsense_devices import RealSenseCamera
     camera = RealSenseCamera()

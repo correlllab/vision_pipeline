@@ -8,41 +8,35 @@ from sensor_msgs_py   import point_cloud2
 from std_msgs.msg import Header
 import struct
 
-def iou_3d(bbox1: o3d.geometry.AxisAlignedBoundingBox, bbox2: o3d.geometry.AxisAlignedBoundingBox) -> float:
+def iou_3d(bbox1: o3d.t.geometry.AxisAlignedBoundingBox,
+           bbox2: o3d.t.geometry.AxisAlignedBoundingBox) -> float:
     """
-    Compute the 3D Intersection over Union (IoU) of two Open3D axis-aligned bounding boxes.
-
-    Args:
-        bbox1: An open3d.geometry.AxisAlignedBoundingBox instance.
-        bbox2: An open3d.geometry.AxisAlignedBoundingBox instance.
-
-    Returns:
-        IoU value as a float in [0.0, 1.0].
+    Compute the 3D IoU of two Open3D *tensor* axis-aligned bounding boxes.
+    Works regardless of device (CPU/CUDA).
     """
-    # Get the min and max corner coordinates of each box
-    min1 = np.array(bbox1.get_min_bound(), dtype=np.float64)
-    max1 = np.array(bbox1.get_max_bound(), dtype=np.float64)
-    min2 = np.array(bbox2.get_min_bound(), dtype=np.float64)
-    max2 = np.array(bbox2.get_max_bound(), dtype=np.float64)
+    # Pull bounds as CPU numpy arrays
+    min1 = bbox1.min_bound.cpu().numpy()
+    max1 = bbox1.max_bound.cpu().numpy()
+    min2 = bbox2.min_bound.cpu().numpy()
+    max2 = bbox2.max_bound.cpu().numpy()
 
-    # Compute the intersection box bounds
+    # Intersection
     inter_min = np.maximum(min1, min2)
     inter_max = np.minimum(max1, max2)
-
-    # Compute intersection dimensions (clamp to zero if no overlap)
     inter_dims = np.clip(inter_max - inter_min, a_min=0.0, a_max=None)
-    inter_vol = np.prod(inter_dims)
+    inter_vol = float(np.prod(inter_dims))
 
-    # Compute volumes of each box
-    vol1 = np.prod(max1 - min1)
-    vol2 = np.prod(max2 - min2)
+    # Volumes
+    dims1 = np.clip(max1 - min1, 0.0, None)
+    dims2 = np.clip(max2 - min2, 0.0, None)
+    vol1 = float(np.prod(dims1))
+    vol2 = float(np.prod(dims2))
 
-    # Compute union volume
+    # Union & IoU
     union_vol = vol1 + vol2 - inter_vol
-    if union_vol <= 0:
+    if union_vol <= 0.0:
         return 0.0
-
-    return float(inter_vol / union_vol)
+    return inter_vol / union_vol
 
 def pose_to_matrix(pose: np.ndarray) -> np.ndarray:
     """
@@ -136,7 +130,7 @@ def in_image(point: np.ndarray,
             - 'model', 'coeffs': distortion model & parameters (ignored here if coeffs==0)
 
     Returns:
-        True if the point projects within [0,width)×[0,height) and z_cam>0, else False.
+        True if the point projects within [0,width)x[0,height) and z_cam>0, else False.
     """
     # 1) build the camera-to-world transform, then invert to get world→camera
     T_cam2world = pose_to_matrix(obs_pose)
@@ -162,7 +156,7 @@ def in_image(point: np.ndarray,
     return in_x and in_y
 
 def is_obscured(
-    pcd: o3d.geometry.PointCloud,
+    pcd: o3d.t.geometry.PointCloud,
     depth_image: np.ndarray,
     cam_pose: list,
     I: dict,
@@ -171,39 +165,41 @@ def is_obscured(
 ) -> bool:
     """
     Returns True if ≥ obscured_fraction of pcd is hidden (depth_image closer).
-    cam_pose must be a list (flat 16, nested 4×4, or 7-element pose).
+    Works with open3d.t.geometry.PointCloud.
+    
+    cam_pose: list (flat 16, nested 4×4, or 7-element pose).
     I: {"fx","fy","cx","cy","width","height"}.
     """
     # 1) Build world→camera matrix
-    T_wc = pose_to_matrix(cam_pose)
+    T_wc = pose_to_matrix(cam_pose)  # assumed defined elsewhere
     T_cw = np.linalg.inv(T_wc)
 
     # 2) Transform points into camera frame
-    pts = np.asarray(pcd.points)
-    pts_h = np.hstack([pts, np.ones((pts.shape[0],1))])
+    pts = pcd.point["positions"].cpu().numpy()  # Nx3 NumPy array
+    pts_h = np.hstack([pts, np.ones((pts.shape[0], 1), dtype=pts.dtype)])
     pts_cam = (T_cw @ pts_h.T).T[:, :3]
 
-    # 3) Keep only points in front
-    mask_front = pts_cam[:,2] > 0
+    # 3) Keep only points in front of camera
+    mask_front = pts_cam[:, 2] > 0
     pts_cam = pts_cam[mask_front]
     if pts_cam.size == 0:
         return False
 
-    # 4) Project to pixel coords
+    # 4) Project to pixel coordinates
     fx, fy = I["fx"], I["fy"]
     cx, cy = I["cx"], I["cy"]
-    us = np.round(pts_cam[:,0]*fx/pts_cam[:,2] + cx).astype(int)
-    vs = np.round(pts_cam[:,1]*fy/pts_cam[:,2] + cy).astype(int)
+    us = np.round(pts_cam[:, 0] * fx / pts_cam[:, 2] + cx).astype(int)
+    vs = np.round(pts_cam[:, 1] * fy / pts_cam[:, 2] + cy).astype(int)
 
     H, W = I["height"], I["width"]
-    valid = (us>=0)&(us<W)&(vs>=0)&(vs<H)
-    us, vs, zs = us[valid], vs[valid], pts_cam[valid,2]
+    valid = (us >= 0) & (us < W) & (vs >= 0) & (vs < H)
+    us, vs, zs = us[valid], vs[valid], pts_cam[valid, 2]
     if zs.size == 0:
         return False
 
     # 5) Compare to depth image
     depth_at = depth_image[vs, us]
-    good = (depth_at>0)&np.isfinite(depth_at)
+    good = (depth_at > 0) & np.isfinite(depth_at)
     zs, depth_at = zs[good], depth_at[good]
     if zs.size == 0:
         return False

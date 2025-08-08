@@ -1,16 +1,14 @@
 import torch
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 import warnings
-import matplotlib.pyplot as plt
-import cv2
 import numpy as np
 import open3d as o3d
+import open3d.core as o3c
+import open3d.t.geometry as o3tg
 from open3d.visualization import gui, rendering
 
 import numpy as np
 import json
-import random
-
 
 import os
 
@@ -40,8 +38,6 @@ os.makedirs(os.path.join(fig_dir, "SAM2"), exist_ok=True)
 
 from math_utils import pose_to_matrix
 
-
-
 def get_points_and_colors(depths, rgbs, fx, fy, cx, cy):
     """
     Back-project a batch of depth and RGB images to 3D point clouds.
@@ -61,7 +57,7 @@ def get_points_and_colors(depths, rgbs, fx, fy, cx, cy):
     # Create meshgrid of pixel coordinates
     u = torch.arange(W, device=device)
     v = torch.arange(H, device=device)
-    grid_u, grid_v = torch.meshgrid(u, v, indexing='xy')  # shape (H, W)
+    grid_v, grid_u = torch.meshgrid(v, u, indexing='ij')  # (H, W)
 
     # Flatten pixel coordinates
     grid_u_flat = grid_u.reshape(-1)  # (H*W,)
@@ -91,6 +87,7 @@ class SAM2_PC:
         """
         self.sam_predictor = SAM2ImagePredictor.from_pretrained(config["sam2_model"])
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        self.o3dDevice = o3c.Device("CPU:0") #o3c.Device("CUDA:0")
 
     def get_masks(self, rgb_img, depth_img, bbox, debug):
         #Run sam2 on all the boxes
@@ -127,28 +124,22 @@ class SAM2_PC:
         masked_rgb = rgb_img[None, ...] * sam_mask[..., None]
         return masked_depth, masked_rgb
 
-    def get_pcd_bbox(self, pts, cls, transformation_matrix, debug):
+    def get_pcd(self, pts, cls, transformation_matrix, debug):
         # build Open3D PointCloud
         if debug:
             print(f"\n\n[SAM2_PC get_pcd_bbox] {len(pts)=} {len(cls)=}")
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(pts.numpy())
-        pcd.colors = o3d.utility.Vector3dVector(cls.numpy()/255)
+        pcd = o3tg.PointCloud(self.o3dDevice)
+        pcd.point["positions"] = o3c.Tensor(pts.numpy().astype(np.float32), o3c.float32, self.o3dDevice)
+        pcd.point["colors"] = o3c.Tensor((cls.numpy()/255.0).astype(np.float32), o3c.float32, self.o3dDevice)
         pcd = pcd.voxel_down_sample(voxel_size=config["voxel_size"])
         # Apply statistical outlier removal to denoise the point cloud
         if config["statistical_outlier_removal"]:
-            pcd, ind = pcd.remove_statistical_outlier(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
+            pcd, ind = pcd.remove_statistical_outliers(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
         if config["radius_outlier_removal"]:
-            pcd, ind = pcd.remove_radius_outlier(nb_points=config["radius_nb_points"], radius=config["radius_radius"])
+            pcd, ind = pcd.remove_radius_outliers(nb_points=config["radius_nb_points"], search_radius=config["radius_radius"])
         pcd = pcd.transform(transformation_matrix)
-        bbox = pcd.get_axis_aligned_bounding_box()
-        if debug:
-            print(f"[SAM2_PC get_pcd_bbox] {pcd=}")
-            print(f"[SAM2_PC get_pcd_bbox] {bbox=}")
-
-        bbox.color = (1.0, 0.0, 0.0)  # red
-
-        return pcd, bbox
+        
+        return pcd
 
 
     def predict(self, rgb_img, depth_img, bbox, probs, intrinsics, obs_pose, debug, query_str=""):
@@ -162,12 +153,14 @@ class SAM2_PC:
         - intrinsics: Camera intrinsics
         - debug: If True, prints debug information
         Returns:
-        - reduced_pcds: List of reduced point clouds
-        - reduced_bounding_boxes_3d: List of reduced 3D bounding boxes
-        - reduced_probs: List of reduced scores
+        - pcds: List of reduced point clouds
+        - bounding_boxes_3d: List of reduced 3D bounding boxes
+        - new_probs: List of reduced scores
+        - masked_rgb: List of RGB masks
+        - masked_depth: List of Depth Masks
         """
         if debug:
-            print(f"[SAM2_PC predict] Received {len(bbox)} boxes, probs shape = {probs.shape}")
+            print(f"[SAM2_PC predict] Received {len(bbox)=}, {len(probs)=}")
             print(f"[SAM2_PC predict] query_str = {query_str}")
         masked_depth, masked_rgb = self.get_masks(rgb_img, depth_img, bbox, debug=debug)
         if masked_depth is None or masked_rgb is None:
@@ -195,13 +188,13 @@ class SAM2_PC:
         new_masked_depth = []
         new_probs = []
 
-        pts_cpu   = points.detach().cpu()
-        cols_cpu  = colors.detach().cpu()
+        pts_cpu = points.detach().cpu()
+        cols_cpu = colors.detach().cpu()
         #for each candiate object get the point cloud unless there are too few points
         transformation_matrix = pose_to_matrix(obs_pose)
         for i in range(B):
-            pts = pts_cpu[i]          # (N,3)
-            cls = cols_cpu[i]         # (N,3)
+            pts = pts_cpu[i]
+            cls = cols_cpu[i]
 
             # mask out void points
             depths = pts[:, 2]
@@ -212,7 +205,13 @@ class SAM2_PC:
                 continue
             pts = pts[valid]
             cls = cls[valid]
-            pcd, bbox = self.get_pcd_bbox(pts, cls, transformation_matrix, debug=debug)
+            pcd = self.get_pcd(pts, cls, transformation_matrix, debug=debug)
+            if pcd.point["positions"].shape[0] < config["min_3d_points"]:
+                continue
+            bbox = pcd.get_axis_aligned_bounding_box()
+            if debug:
+                print(f"[SAM2_PC get_pcd_bbox] {pcd=}")
+                print(f"[SAM2_PC get_pcd_bbox] {bbox=}")
 
             pcds.append(pcd)
             bounding_boxes_3d.append(bbox)
@@ -227,52 +226,170 @@ class SAM2_PC:
     def __repr__(self):
         return self.__str__()
 
-def display_3dCandidates(predicitons, window_prefix = ""):
+def main():
+    import threading, time
+    from BBBackBones import OWLv2, YOLO_WORLD, Gemini_BB, display_2dCandidates
+    from realsense_devices import RealSenseCamera
+
+    bb = YOLO_WORLD()
+
+    sam2 = SAM2_PC()
+    
+
+    queries = config["test_querys"]
+
+
+    # Display Variables 
+    running = True
+    lock = threading.Lock()
+    latest_pcs = {}
+    latest_bbs = {}
+    latest_probs = {}
+    TICK_PERIOD = 0.05
+
+
+    # Open3D GUI setup 
     app = gui.Application.instance
     app.initialize()
 
-    vis = o3d.visualization.O3DVisualizer(window_prefix + "PointClouds", 1024, 768)
-    vis.add_geometry("CameraFrame", o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2, origin=[0,0,0]))
-
-    for obj in predicitons:
-        pcds = predicitons[obj]["pcds"]
-        bboxes = predicitons[obj]["boxes"]
-        probs = predicitons[obj]["probs"]
-
-        for i, pcd in enumerate(pcds):
-            vis.add_geometry(f"{obj}_pcd_{i}", pcd)
-            vis.add_geometry(f"{obj}_bbox_{i}", bboxes[i])
-            vis.add_3d_label(pcd.get_center(), f"{obj} {probs[i]:.2f}")
+    vis = o3d.visualization.O3DVisualizer("RealSense 3D Viewer", 1024, 768)
+    vis.show_settings = True
+    
+    # Preallocate a fixed-size point cloud
+    coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
+    vis.add_geometry("world_axis", coord_frame)
     vis.reset_camera_to_default()
     app.add_window(vis)
-    app.run()
+
+    last_frame = set()
+    do_debug = False
+    # ---- RealSense grabber thread (no GUI calls here) ----
+    def grabber():
+        nonlocal latest_pcs, latest_bbs, latest_probs, running
+        cam = None
+        try:
+            cam = RealSenseCamera()
+            # short warmup
+            for _ in range(10):
+                data = cam.get_data()
+                time.sleep(0.02)
+            fx=data['color_intrinsics'].fx
+            fy=data['color_intrinsics'].fy
+            cx=data['color_intrinsics'].ppx
+            cy=data['color_intrinsics'].ppy
+            intrinsics = {"fx": fx, "fy": fy, "cx": cx, "cy": cy}
+            while running:
+                data = cam.get_data()  # make sure this has a short internal timeout
+                rgb_img = data["color_img"]
+                depth_img = data["depth_img"] * cam.depth_scale
+                bb_results = bb.predict(data["color_img"], queries, debug=do_debug)
+                tmp_latest_pcs = {}
+                tmp_latest_bbs = {}
+                tmp_latest_probs = {}
+                for q in queries:
+                    if q not in bb_results:
+                        continue
+                    pcds, bboxes, probs, masked_rgb, masked_depth = sam2.predict(rgb_img, depth_img, bb_results[q]["boxes"], bb_results[q]["probs"], intrinsics, [0,0,0,0,0,0], debug=do_debug, query_str=q)
+                    if len(pcds) == 0:
+                        # nothing valid this tick for this query
+                        continue
+                    # print(f"{probs.shape=}")
+                    tmp_latest_pcs[q] = pcds
+                    tmp_latest_bbs[q] = bboxes
+                    tmp_latest_probs[q] = probs
+
+                with lock:
+                    latest_pcs = tmp_latest_pcs
+                    latest_bbs = tmp_latest_bbs
+                    latest_probs = tmp_latest_probs
+
+                # tiny nap to avoid maxing a CPU
+                time.sleep(0.001)
+        except Exception as e:
+            print("Grabber error:", e)
+        finally:
+            if cam:
+                try: cam.stop()
+                except Exception: pass
+
+    def pump():
+        pcs = None
+        bbs = None
+        with lock:
+            pcs = latest_pcs
+            bbs = latest_bbs
+            probs = latest_probs
+        if not pcs or not bbs:
+            return
+        
+        flags = (rendering.Scene.UPDATE_POINTS_FLAG | rendering.Scene.UPDATE_COLORS_FLAG)
+        nonlocal last_frame
+        this_frame = set()
+
+        vis.clear_3d_labels()
+        for q in queries:
+            if q not in pcs or q not in bbs:
+                continue
+            q_pcs = pcs[q]
+            q_bboxs = bbs[q]
+            q_probs = probs[q]
+
+            for i in range(len(q_pcs)):
+                pcd = q_pcs[i]
+                bbox = q_bboxs[i]
+                prob = q_probs[i]
+
+                # Point cloud
+                name_pcd = f"{q.replace(' ', '_')}_pcd_{i}"
+                if name_pcd in last_frame:
+                    vis.remove_geometry(name_pcd)
+                vis.add_geometry(name_pcd, pcd) 
+                this_frame.add(name_pcd)
+                
+
+                # # Bounding box
+                name_bbox = f"{q.replace(' ', '_')}_bbox_{i}"
+                if name_bbox in last_frame:
+                    vis.remove_geometry(name_bbox)
+                vis.add_geometry(name_bbox, bbox.to_legacy())
+                this_frame.add(name_bbox)
+
+                vis.add_3d_label(pcd.get_center().numpy(), f"{q} {prob:.2f}")
+
+
+        for stale_geometry in (last_frame - this_frame):
+            vis.remove_geometry(stale_geometry)
+            
+        last_frame = this_frame
+        vis.post_redraw()
+
+    def ticker():
+        while running:
+            try:
+                app.post_to_main_thread(vis, pump)
+            except Exception:
+                pass
+            time.sleep(TICK_PERIOD)
+
+    def on_close():
+        nonlocal running
+        running = False
+        return True
+    vis.set_on_close(on_close)
+
+    # Start threads
+    th_grab = threading.Thread(target=grabber, daemon=True)
+    th_tick = threading.Thread(target=ticker,  daemon=True)
+    th_grab.start(); th_tick.start()
+
+    try:
+        app.run()
+    finally:
+        # Stop threads and close plot
+        running = False
+        th_grab.join(timeout=2)
+        th_tick.join(timeout=2)
 
 if __name__ == "__main__":
-    from realsense_devices import RealSenseCamera
-    camera = RealSenseCamera()
-    data = camera.get_data()
-
-
-    sam2 = SAM2_PC()
-    rgb_img = data["color_img"]
-    depth_img = data["depth_img"]*camera.depth_scale
-    fx=data['color_intrinsics'].fx
-    fy=data['color_intrinsics'].fy
-    cx=data['color_intrinsics'].ppx
-    cy=data['color_intrinsics'].ppy
-    intrinsics = {"fx": fx, "fy": fx, "cx": cx, "cy": cy}
-
-    from BBBackBones import OWLv2, YOLO_WORLD, Gemini_BB, display_2dCandidates
-    bb = YOLO_WORLD()
-    queries = config["test_querys"]
-    bb_results = bb.predict(rgb_img, queries, debug=True)
-    display_2dCandidates(rgb_img, bb_results, window_prefix="BB_")
-    print("\n\n")
-   
-    candidates_3d = {}
-    for obj in bb_results.keys():
-        print(f"Processing {obj} {len(bb_results[obj]['boxes'])=} {len(bb_results[obj]['boxes'])=}")
-        pcds, bboxes, probs, masked_rgb, masked_depth = sam2.predict(rgb_img, depth_img, bb_results[obj]["boxes"], bb_results[obj]["probs"], intrinsics, [0,0,0,0,0,0], debug=False, query_str=obj)
-        candidates_3d[obj] = {"pcds": pcds, "boxes": bboxes, "probs": probs, "masked_rgb": masked_rgb, "masked_depth": masked_depth}
-        print("\n\n")
-    display_3dCandidates(candidates_3d, window_prefix="SAM2_")
+    main()
+        
