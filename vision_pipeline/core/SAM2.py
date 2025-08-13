@@ -5,7 +5,6 @@ import numpy as np
 import open3d as o3d
 import open3d.core as o3c
 import open3d.t.geometry as o3tg
-from open3d.visualization import gui, rendering
 
 import numpy as np
 import json
@@ -219,19 +218,26 @@ class SAM2_PC:
             new_masked_depth.append(masked_depth[i])
             new_probs.append(probs[i])
 
-        new_probs = torch.tensor(new_probs)
         return pcds, bounding_boxes_3d, new_probs, masked_rgb, masked_depth
     def __str__(self):
         return f"SAM2: {self.sam_predictor.model.device}"
     def __repr__(self):
         return self.__str__()
 
-def main():
-    import threading, time
-    from BBBackBones import OWLv2, YOLO_WORLD, Gemini_BB, display_2dCandidates
-    from realsense_devices import RealSenseCamera
+if __name__ == "__main__":
+    from BBBackBones import OWLv2, YOLO_WORLD, Gemini_BB
+    from realsense_devices import vis_loop
 
-    bb = YOLO_WORLD()
+
+    selected_model = input("input yolo for yolo world, gemini for gemini, owl for Owlv2: ")
+    if selected_model == "gemini":
+        bb = Gemini_BB()
+    elif selected_model == "owl":
+        bb = OWLv2()
+    elif selected_model == "yolo":
+        bb = YOLO_WORLD()
+    else:
+        raise ValueError(f"Unknown model {selected_model}")
 
     sam2 = SAM2_PC()
     
@@ -239,157 +245,44 @@ def main():
     queries = config["test_querys"]
 
 
-    # Display Variables 
-    running = True
-    lock = threading.Lock()
-    latest_pcs = {}
-    latest_bbs = {}
-    latest_probs = {}
-    TICK_PERIOD = 0.05
-
-
-    # Open3D GUI setup 
-    app = gui.Application.instance
-    app.initialize()
-
-    vis = o3d.visualization.O3DVisualizer("RealSense 3D Viewer", 1024, 768)
-    vis.show_settings = True
-    
-    # Preallocate a fixed-size point cloud
-    coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
-    vis.add_geometry("world_axis", coord_frame)
-    vis.reset_camera_to_default()
-    app.add_window(vis)
-
-    last_frame = set()
     do_debug = False
     # ---- RealSense grabber thread (no GUI calls here) ----
-    def grabber():
-        nonlocal latest_pcs, latest_bbs, latest_probs, running
-        cam = None
-        try:
-            cam = RealSenseCamera()
-            # short warmup
-            for _ in range(10):
-                data = cam.get_data()
-                time.sleep(0.02)
-            fx=data['color_intrinsics'].fx
-            fy=data['color_intrinsics'].fy
-            cx=data['color_intrinsics'].ppx
-            cy=data['color_intrinsics'].ppy
-            intrinsics = {"fx": fx, "fy": fy, "cx": cx, "cy": cy}
-            while running:
-                data = cam.get_data()  # make sure this has a short internal timeout
-                rgb_img = data["color_img"]
-                depth_img = data["depth_img"] * cam.depth_scale
-                bb_results = bb.predict(data["color_img"], queries, debug=do_debug)
-                tmp_latest_pcs = {}
-                tmp_latest_bbs = {}
-                tmp_latest_probs = {}
-                for q in queries:
-                    if q not in bb_results:
-                        continue
-                    pcds, bboxes, probs, masked_rgb, masked_depth = sam2.predict(rgb_img, depth_img, bb_results[q]["boxes"], bb_results[q]["probs"], intrinsics, [0,0,0,0,0,0], debug=do_debug, query_str=q)
-                    if len(pcds) == 0:
-                        # nothing valid this tick for this query
-                        continue
-                    # print(f"{probs.shape=}")
-                    tmp_latest_pcs[q] = pcds
-                    tmp_latest_bbs[q] = bboxes
-                    tmp_latest_probs[q] = probs
-
-                with lock:
-                    latest_pcs = tmp_latest_pcs
-                    latest_bbs = tmp_latest_bbs
-                    latest_probs = tmp_latest_probs
-
-                # tiny nap to avoid maxing a CPU
-                time.sleep(0.001)
-        except Exception as e:
-            print("Grabber error:", e)
-        finally:
-            if cam:
-                try: cam.stop()
-                except Exception: pass
-
-    def pump():
-        pcs = None
-        bbs = None
-        with lock:
-            pcs = latest_pcs
-            bbs = latest_bbs
-            probs = latest_probs
-        if not pcs or not bbs:
-            return
-        
-        flags = (rendering.Scene.UPDATE_POINTS_FLAG | rendering.Scene.UPDATE_COLORS_FLAG)
-        nonlocal last_frame
-        this_frame = set()
-
-        vis.clear_3d_labels()
+    def grabber_func(cam):
+        data = cam.get_data()
+        fx=data['color_intrinsics'].fx
+        fy=data['color_intrinsics'].fy
+        cx=data['color_intrinsics'].ppx
+        cy=data['color_intrinsics'].ppy
+        intrinsics = {"fx": fx, "fy": fy, "cx": cx, "cy": cy}
+        data = cam.get_data()  # make sure this has a short internal timeout
+        rgb_img = data["color_img"]
+        depth_img = data["depth_img"] * cam.depth_scale
+        bb_results = bb.predict(data["color_img"], queries, debug=do_debug)
+        tmp_latest_pcs = {}
+        tmp_latest_bbs = {}
+        tmp_latest_probs = {}
         for q in queries:
-            if q not in pcs or q not in bbs:
+            if q not in bb_results:
                 continue
-            q_pcs = pcs[q]
-            q_bboxs = bbs[q]
-            q_probs = probs[q]
-
-            for i in range(len(q_pcs)):
-                pcd = q_pcs[i]
-                bbox = q_bboxs[i]
-                prob = q_probs[i]
-
-                # Point cloud
-                name_pcd = f"{q.replace(' ', '_')}_pcd_{i}"
-                if name_pcd in last_frame:
-                    vis.remove_geometry(name_pcd)
-                vis.add_geometry(name_pcd, pcd) 
-                this_frame.add(name_pcd)
-                
-
-                # # Bounding box
-                name_bbox = f"{q.replace(' ', '_')}_bbox_{i}"
-                if name_bbox in last_frame:
-                    vis.remove_geometry(name_bbox)
-                vis.add_geometry(name_bbox, bbox.to_legacy())
-                this_frame.add(name_bbox)
-
-                vis.add_3d_label(pcd.get_center().numpy(), f"{q} {prob:.2f}")
+            pcds, bboxes, probs, masked_rgb, masked_depth = sam2.predict(rgb_img, depth_img, bb_results[q]["boxes"], bb_results[q]["probs"], intrinsics, [0,0,0,0,0,0], debug=do_debug, query_str=q)
+            if len(pcds) == 0:
+                # nothing valid this tick for this query
+                continue
+            # print(f"{probs.shape=}")
+            tmp_latest_pcs[q] = pcds
+            tmp_latest_bbs[q] = bboxes
+            tmp_latest_probs[q] = probs
+        
+        out_dict = {
+            "pcs": tmp_latest_pcs,
+            "bbs": tmp_latest_bbs,
+            "probs": tmp_latest_probs,
+            "vertices": data["vertices"],
+            "colors": data["colors"]
+        }
+        return out_dict
 
 
-        for stale_geometry in (last_frame - this_frame):
-            vis.remove_geometry(stale_geometry)
-            
-        last_frame = this_frame
-        vis.post_redraw()
 
-    def ticker():
-        while running:
-            try:
-                app.post_to_main_thread(vis, pump)
-            except Exception:
-                pass
-            time.sleep(TICK_PERIOD)
-
-    def on_close():
-        nonlocal running
-        running = False
-        return True
-    vis.set_on_close(on_close)
-
-    # Start threads
-    th_grab = threading.Thread(target=grabber, daemon=True)
-    th_tick = threading.Thread(target=ticker,  daemon=True)
-    th_grab.start(); th_tick.start()
-
-    try:
-        app.run()
-    finally:
-        # Stop threads and close plot
-        running = False
-        th_grab.join(timeout=2)
-        th_tick.join(timeout=2)
-
-if __name__ == "__main__":
-    main()
+    vis_loop(grabber_func)
         

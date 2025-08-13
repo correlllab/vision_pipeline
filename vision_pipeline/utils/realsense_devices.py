@@ -6,6 +6,8 @@ import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
 import open3d.core as o3c
 import open3d.t.geometry as o3tg
+import threading, time, traceback
+
 
 def list_realsense_devices():
     # Create a context object to manage devices
@@ -161,134 +163,121 @@ def pointcloud_intersection(pcd1, pcd2, radius=0.005):
     return in1, in2
 
 
-
-# --- Main Application ---
-def main():
-    import threading
-    import numpy as np
-    import matplotlib
-    matplotlib.use("Qt5Agg", force=True)  # avoid backend fights
-    import matplotlib.pyplot as plt
-
+def vis_loop(grabber_function, display_world = True, window_name ="RealSense 3D Viewer", provide_cam = True):
+    """
+    grabber function must implement a single iteration in which it consume the data from RealSenseCamera.get_data + the lock and sets latest_pcs, latest_bbs, latest_probs
+    """
+    # Display Variables 
     running = True
     lock = threading.Lock()
-    latest_vertices = None
-    latest_colors = None
-    MAX_POINTS = 300_000
-    TICK_PERIOD = 0.05  # ~20Hz GUI updates; tune as needed
+    latest_pcs = {} #used for objects
+    latest_bbs = {} #used for objects
+    latest_probs = {} #used for objects
+    latest_vertices = [] #used for world
+    latest_colors = [] #used for world
 
-    # ---- Open3D GUI setup (main thread) ----
+    TICK_PERIOD = 0.05
+
+
+    # Open3D GUI setup 
     app = gui.Application.instance
     app.initialize()
 
-    vis = o3d.visualization.O3DVisualizer("RealSense 3D Viewer", 1024, 768)
+    vis = o3d.visualization.O3DVisualizer(f"{window_name}", 1024, 768)
     vis.show_settings = True
-
-    # device = o3c.Device("CUDA:0")
-    device = o3c.Device("CPU:0")
-
-    # Preallocate a fixed-size point cloud
-    positions_np = np.zeros((MAX_POINTS, 3), dtype=np.float32)
-    colors_np    = np.zeros((MAX_POINTS, 3), dtype=np.float32)
-
-    pcd = o3tg.PointCloud(device)
-    pcd.point["positions"] = o3c.Tensor(positions_np, o3c.float32, device)
-    pcd.point["colors"]    = o3c.Tensor(colors_np,   o3c.float32, device)
-
-    vis.add_geometry("pcd", pcd)
-    coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5, origin=[0, 0, 0])
+    
+    coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.25)
     vis.add_geometry("world_axis", coord_frame)
+
+    if display_world:
+        WORLD_MAX_POINTS = 300_000
+        positions_np = np.zeros((WORLD_MAX_POINTS, 3), dtype=np.float32)
+        colors_np = np.zeros((WORLD_MAX_POINTS, 3), dtype=np.float32)
+        device = o3d.core.Device("CPU:0")
+        world_pc = o3d.t.geometry.PointCloud()
+        world_pc.point["positions"] = o3d.core.Tensor(positions_np, o3d.core.float32, device)
+        world_pc.point["colors"]    = o3d.core.Tensor(colors_np,   o3d.core.float32, device)
+        vis.add_geometry("world_pc", world_pc)
+        
     vis.reset_camera_to_default()
     app.add_window(vis)
 
-    # Live timing plot (in-process but not on GUI thread)
-    plt.ion()
-    fig, ax = plt.subplots(figsize=(10, 6))
-    line1, = ax.plot([], [], label='1. Get Data')
-    line2, = ax.plot([], [], label='2. Update Tensor')
-    line3, = ax.plot([], [], label='3. Update Geometry')
-    line4, = ax.plot([], [], label='4. Pump Callback')
-    ax.set_xlabel('Frame Number'); ax.set_ylabel('Time (seconds)')
-    ax.set_title('RealSense Data Processing Times Per Frame (Live)')
-    ax.grid(True); ax.legend()
-    acc_1, acc_2, acc_3, acc_4 = [], [], [], []
-    last_plot = time.time()
+    last_frame = set()
 
-    def update_plot(t1, t2, t3, t4):
-        nonlocal last_plot
-        acc_1.append(t1); acc_2.append(t2); acc_3.append(t3); acc_4.append(t4)
-        # Throttle plotting a bit
-        if time.time() - last_plot > 0.05 and plt.fignum_exists(fig.number):
-            x = np.arange(1, len(acc_1) + 1)
-            line1.set_data(x, acc_1); line2.set_data(x, acc_2)
-            line3.set_data(x, acc_3); line4.set_data(x, acc_4)
-            ax.relim(); ax.autoscale_view()
-            fig.canvas.draw_idle(); fig.canvas.flush_events()
-            last_plot = time.time()
-
-    # ---- RealSense grabber thread (no GUI calls here) ----
-    def grabber():
-        nonlocal latest_vertices, latest_colors, running
-        cam = None
-        try:
-            cam = RealSenseCamera()
-            # short warmup
-            for _ in range(10):
-                cam.get_data()
-                time.sleep(0.02)
-
-            while running:
-                s = time.time()
-                data = cam.get_data()  # make sure this has a short internal timeout
-                t_get = time.time() - s
-
-                with lock:
-                    latest_vertices = data["vertices"]
-                    latest_colors   = data["colors"]
-
-                # tiny nap to avoid maxing a CPU
-                time.sleep(0.001)
-        except Exception as e:
-            print("Grabber error:", e)
-        finally:
-            if cam:
-                try: cam.stop()
-                except Exception: pass
-
-    # ---- Pump: called on the Qt main thread via post_to_main_thread ----
     def pump():
-        # Copy references quickly while holding the lock
+        pcs = None
+        bbs = None
         with lock:
-            verts = latest_vertices
-            cols  = latest_colors
+            pcs   = {k: v[:] for k, v in latest_pcs.items()}
+            bbs   = {k: v[:] for k, v in latest_bbs.items()}
+            probs = {k: v[:] for k, v in latest_probs.items()}
+            if display_world:
+                verts = latest_vertices
+                colors = latest_colors
 
-        if verts is None or cols is None:
-            return  # nothing yet
-
-        s2 = time.time()
-        n = min(len(verts), MAX_POINTS)
-        if n > 0:
-            # slice-assign into preallocated tensors (no reallocation)
-            pcd.point["positions"][:n] = o3c.Tensor(verts[:n], o3c.float32, device)
-            pcd.point["colors"][:n]    = o3c.Tensor(cols[:n],  o3c.float32, device)
-        if n < MAX_POINTS:
-            # avoid NaNs; fill the tail with zeros
-            pcd.point["positions"][n:] = 0
-            pcd.point["colors"][n:]    = 0
-        t_upd = time.time() - s2
-
-        s3 = time.time()
+        
         flags = (rendering.Scene.UPDATE_POINTS_FLAG | rendering.Scene.UPDATE_COLORS_FLAG)
-        vis.update_geometry("pcd", pcd, flags)
+        nonlocal last_frame
+        this_frame = set()
+
+        vis.clear_3d_labels()
+        for q in pcs.keys():
+            if q not in pcs or q not in bbs:
+                continue
+            q_pcs = pcs[q]
+            q_bboxs = bbs[q]
+            q_probs = probs[q]
+            assert len(q_pcs) == len(q_bboxs)
+            assert len(q_pcs) == len(q_probs)
+
+            for i in range(len(q_pcs)):
+                pcd = q_pcs[i]
+                bbox = q_bboxs[i]
+                prob = q_probs[i]
+
+                # Point cloud
+                name_pcd = f"{q.replace(' ', '_')}_pcd_{i}"
+                if name_pcd in last_frame:
+                    vis.remove_geometry(name_pcd)
+                vis.add_geometry(name_pcd, pcd) 
+                this_frame.add(name_pcd)
+                
+
+                # # Bounding box
+                name_bbox = f"{q.replace(' ', '_')}_bbox_{i}"
+                if name_bbox in last_frame:
+                    vis.remove_geometry(name_bbox)
+                legacy_bbox = bbox.to_legacy()
+                legacy_bbox.color = (1-prob, prob, 0)
+                vis.add_geometry(name_bbox, legacy_bbox)
+                this_frame.add(name_bbox)
+
+                vis.add_3d_label(pcd.get_center().numpy(), f"{q} {prob:.2f}")
+
+
+        for stale_geometry in (last_frame - this_frame):
+            vis.remove_geometry(stale_geometry)
+            
+        last_frame = this_frame
+
+        #print(f"{display_world=}, {len(verts)=}, {len(colors)=} {len(verts) == len(colors)}")
+        if display_world and len(verts) > 0 and len(colors) > 0 and len(verts) == len(colors):
+            #print("world updated")
+            n = min(len(verts), WORLD_MAX_POINTS)
+            if n > 0:
+                # slice-assign into preallocated tensors (no reallocation)
+                world_pc.point["positions"][:n] = o3d.core.Tensor(verts[:n],  o3d.core.float32, device)
+                world_pc.point["colors"][:n]    =  o3d.core.Tensor(colors[:n],   o3d.core.float32, device)
+            if n < WORLD_MAX_POINTS:
+                # avoid NaNs; fill the tail with zeros
+                world_pc.point["positions"][n:] = 0
+                world_pc.point["colors"][n:]    = 0
+            flags = (rendering.Scene.UPDATE_POINTS_FLAG | rendering.Scene.UPDATE_COLORS_FLAG)
+            vis.update_geometry("world_pc", world_pc, flags)
+            vis.post_redraw()
+
         vis.post_redraw()
-        t_geo = time.time() - s3
 
-        # Record “pump” cost as t_gui
-        t_gui = t_upd + t_geo
-        # We can’t measure t_get here; approximate from last grabber tick if you expose it.
-        update_plot(0.0, t_upd, t_geo, t_gui)
-
-    # ---- Ticker thread: periodically schedule pump() on the GUI thread ----
     def ticker():
         while running:
             try:
@@ -297,19 +286,47 @@ def main():
                 pass
             time.sleep(TICK_PERIOD)
 
-    # Clean shutdown when user closes the Open3D window
     def on_close():
         nonlocal running
         running = False
         return True
+    
+    def grabber_wrapper():
+        nonlocal latest_pcs, latest_bbs, latest_probs, running
+        if display_world:
+            nonlocal latest_vertices, latest_colors
+        cam = None
+        try:
+            if provide_cam:
+                cam = RealSenseCamera()
+                for _ in range(10):
+                    cam.get_data()
+                    time.sleep(0.02)
+            while running:
+                grabber_out = grabber_function(cam)
+                with lock:
+                    latest_vertices = grabber_out["vertices"]
+                    latest_colors = grabber_out["colors"]
+                    latest_pcs = grabber_out["pcs"]
+                    latest_bbs = grabber_out["bbs"]
+                    latest_probs = grabber_out["probs"]
+                time.sleep(0.001)
+        except Exception as e:
+            print("Grabber error:", e)
+            traceback.print_exc()
+        finally:
+            if cam:
+                try: cam.stop()
+                except Exception: pass
+
+
     vis.set_on_close(on_close)
 
     # Start threads
-    th_grab = threading.Thread(target=grabber, daemon=True)
+    th_grab = threading.Thread(target=grabber_wrapper, daemon=True)
     th_tick = threading.Thread(target=ticker,  daemon=True)
     th_grab.start(); th_tick.start()
 
-    # Hand control to Qt (single, authoritative GUI loop)
     try:
         app.run()
     finally:
@@ -317,76 +334,14 @@ def main():
         running = False
         th_grab.join(timeout=2)
         th_tick.join(timeout=2)
-        plt.ioff()
-        try: plt.close(fig)
-        except Exception: pass
-
-if __name__ == "__main__":
-    main()
-
 
 
 if __name__ == "__main__":
-    # rgb_color_img = cv2.cvtColor(data["color_img"], cv2.COLOR_BGR2RGB)
-    # o3d_color = o3d.geometry.Image(rgb_color_img)
-    # o3d_depth = o3d.geometry.Image(data["depth_img"])
-    # rgbd_img = o3d.geometry.RGBDImage.create_from_color_and_depth(o3d_color, o3d_depth, convert_rgb_to_intensity=False, depth_scale=1.0/camera.depth_scale)
-    # rgbd_intrinsics = o3d.camera.PinholeCameraIntrinsic(
-    #         width=data['color_intrinsics'].width,
-    #         height=data['color_intrinsics'].height,
-    #         fx=data['color_intrinsics'].fx,
-    #         fy=data['color_intrinsics'].fy,
-    #         cx=data['color_intrinsics'].ppx,
-    #         cy=data['color_intrinsics'].ppy
-    #     )
-    # rgbd_pcd = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_img, rgbd_intrinsics)
-
-    # rs_pcd = o3d.geometry.PointCloud()
-    # rs_pcd.points = o3d.utility.Vector3dVector(data['vertices'])
-    # rs_pcd.colors = o3d.utility.Vector3dVector(data['colors'])
-
-    
-    # print(f"Number of points in RealSense-generated PCD: {len(rs_pcd.points)}")
-    # print(f"Number of points in Open3D-generated PCD:   {len(rgbd_pcd.points)}")
-    # print("-" * 30)
-
-    # # Calculate the distance from each point in rs_pcd to the nearest point in rgbd_pcd
-    # distance = rs_pcd.compute_point_cloud_distance(rgbd_pcd)
-    # distance_array = np.asarray(distance)
-
-    # if len(distance_array) > 0:
-    #     print("Point-to-point distance statistics:")
-    #     print(f"  Mean distance: {np.mean(distance_array):.6f} meters")
-    #     print(f"  Max distance:  {np.max(distance_array):.6f} meters")
-    #     print(f"  Std. dev.:     {np.std(distance_array):.6f} meters")
-    # else:
-    #     print("Could not compute distance, one of the point clouds is empty.")
-
-    
-    # rs_common, rgbd_common = pointcloud_intersection(rs_pcd, rgbd_pcd, radius=0.005)
-
-    # # Color the RealSense-generated cloud RED
-    # rs_pcd.paint_uniform_color([1, 0, 0])
-
-    # # Color the Open3D-generated cloud BLUE
-    # rgbd_pcd.paint_uniform_color([0, 0, 1])
-    
-    # # Visualize them together
-    # o3d.visualization.draw_geometries([rgbd_pcd, rs_pcd])
-
-    # print(f"Found {len(rs_common.points)} points of rs_pcd in rgbd_pcd")
-    # print(f"Found {len(rgbd_common.points)} points of rgbd_pcd in rs_pcd")
-
-    # o3d.visualization.draw_geometries(
-    #     [rs_common],
-    #     window_name="points of rs_pcd in rgbd_pcd"
-    # )
-
-    # o3d.visualization.draw_geometries(
-    #     [rgbd_common],
-    #     window_name=" points of rgbd_pcd in rs_pcd"
-    # )
-
-
-
-    pass
+    def grabber_func(camera):
+        data = camera.get_data()  # make sure this has a short internal timeout
+        data["pcs"] = {}
+        data["bbs"] = {}
+        data["probs"] = {}
+        return data
+    vis_loop(grabber_func)
+  

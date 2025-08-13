@@ -15,7 +15,9 @@ setup(
         ('share/' + package_name, ['package.xml']),
         # include configuration file
         ('share/' + package_name, [os.path.join('vision_pipeline', 'config.json')]),
-        ('share/' + package_name + '/launch', [ "launch/example_client.launch.py", "launch/vp.launch.py"]),
+        ('share/' + package_name + '/launch', ["launch/vp.launch.py", #launches vision pipeline + VP.rviz
+                                                "launch/foundation_models.launch.py" #launches foundation_models + foundation_models.rviz
+                                                ]), 
         ('share/' + package_name + '/Rviz', glob('Rviz/*.rviz')),
 
     ],
@@ -27,12 +29,12 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'camera = vision_pipeline.ROS.RosRealsense:TestSubscriber',
-            'hz = vision_pipeline.ROS.frequency_measure:MeasureCameraFrequency',
-            'foundation_models = vision_pipeline.ROS.RosRealsense:TestFoundationModels',
-            'vp = vision_pipeline.ROS.RosVisionPipeline:RunVisionPipe',
-            'exampleclient = vision_pipeline.ROS.RosVisionPipeline:TestExampleClient',
-            'main = vision_pipeline.ROS.main:main',
+            'camera = vision_pipeline.ROS.RosRealsense:TestSubscriber', #tests cameras in cv2
+            'hz = vision_pipeline.ROS.frequency_measure:MeasureCameraFrequency', #tests subscription timing
+            'foundation_models = vision_pipeline.ROS.RosRealsense:TestFoundationModels', #publishes topic to be used with FoundationModels.rviz
+            'vp = vision_pipeline.ROS.RosVisionPipeline:RunVisionPipe', #executes main vision pipeline
+            'exampleclient = vision_pipeline.ROS.RosVisionPipeline:TestExampleClient', #terminal based interactionwith vision pipeline
+            'main = vision_pipeline.ROS.main:main', #moves the arms with vision
         ],
     },
 )

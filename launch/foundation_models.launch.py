@@ -9,14 +9,14 @@ def generate_launch_description():
     pkg_share = get_package_share_directory("vision_pipeline")
 
     # Path to RViz config file
-    rviz_config_path = os.path.join(pkg_share, "Rviz", "VP.rviz")
+    rviz_config_path = os.path.join(pkg_share, "Rviz", "FoundationModels.rviz")
 
     return LaunchDescription([
         # Vision pipeline foundation_models node
         Node(
             package="vision_pipeline",
-            executable="vp",
-            name="vp_node",
+            executable="foundation_models",
+            name="foundation_models_node",
             output="screen"
         ),
 

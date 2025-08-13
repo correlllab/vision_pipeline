@@ -38,6 +38,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       ros-humble-librealsense2* \
       ros-humble-realsense2-camera-msgs \
+      ros-humble-tf2-ros\
+      ros-humble-tf2-tools\
       ros-humble-realsense2-camera && \
     rm -rf /var/lib/apt/lists/*
 

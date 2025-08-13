@@ -20,6 +20,7 @@ from std_msgs.msg import Header
 from rclpy.time import Time
 from visualization_msgs.msg import Marker, MarkerArray
 from custom_ros_messages.srv import Query, UpdateTrackedObject
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
 
 """
@@ -42,7 +43,7 @@ config_path = os.path.join(parent_dir, 'config.json')
 config = json.load(open(config_path, 'r'))
 from VisionPipeline import VisionPipe
 from RosRealsense import RealSenseSubscriber
-from ros_utils import box_to_points, pcd_to_msg
+from ros_utils import box_to_marker, text_marker, pcd_to_msg
 
 
 
@@ -60,6 +61,14 @@ class ROS_VisionPipe(VisionPipe, Node):
         self._lock = threading.RLock()
         self.vis_frame = config["base_frame"]
         self.create_timer(1.0/6.0, self.publish_viz)
+
+
+        self.qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5
+        )
 
         self.start_services()
     def start_services(self) -> None:
@@ -126,7 +135,7 @@ class ROS_VisionPipe(VisionPipe, Node):
 
             top_pcd, prob = self.query(request.query)
             response.cloud = pcd_to_msg(top_pcd, self.vis_frame)
-            response.prob = float(prob.item())
+            response.prob = prob
             response.result = True
             response.message = f"Tracked objects found for query: {request.query} with prob {prob:.2f}"
         return response
@@ -137,8 +146,8 @@ class ROS_VisionPipe(VisionPipe, Node):
             if isinstance(new_track_string, str) and new_track_string not in self.track_strings:
                 self.track_strings.append(new_track_string)
                 topic_sub_name = new_track_string.replace(" ", "_")
-                self.marker_publishers[new_track_string] = self.create_publisher(MarkerArray, f"/tracked_objects/markers/{topic_sub_name}", 1)
-                self.pc_publishers[new_track_string] = self.create_publisher(PointCloud2, f"/tracked_objects/pointcloud/{topic_sub_name}", 1)
+                self.marker_publishers[new_track_string] = self.create_publisher(MarkerArray, f"/tracked_objects/markers/{topic_sub_name}", self.qos)
+                self.pc_publishers[new_track_string] = self.create_publisher(PointCloud2, f"/tracked_objects/pointcloud/{topic_sub_name}", self.qos)
                 return True
             elif isinstance(new_track_string, list):
                 for x in new_track_string:
@@ -174,13 +183,15 @@ class ROS_VisionPipe(VisionPipe, Node):
                 top_candidate_set = {"probs":[], "boxes":[], "pcds":[] }
 
                 candidates = self.tracked_objects[query]
-                values, indicies = candidates["probs"].topk(min(config["vis_k"], len(candidates["probs"])), largest=True)
-                for i in indicies.tolist():
+                probs = np.array(candidates["probs"])
+                k = min(config["vis_k"], len(probs))
+                indices = np.argsort(probs)[-k:][::-1]  # descending order
+                for i in indices:
                     top_candidate_set["probs"].append(candidates["probs"][i])
                     top_candidate_set["boxes"].append(candidates["boxes"][i])
                     top_candidate_set["pcds"].append(candidates["pcds"][i])
                 pcd = self.get_pointcloud(top_candidate_set)
-                if len(pcd.points) == 0:
+                if pcd is None or len(pcd.point["positions"]) == 0:
                     continue
                 pc_msg = pcd_to_msg(pcd, self.vis_frame)
                 self.pc_publishers[query].publish(pc_msg)
@@ -188,12 +199,18 @@ class ROS_VisionPipe(VisionPipe, Node):
                 marker_msg = self.get_marker_msg(top_candidate_set, query)
                 self.marker_publishers[query].publish(marker_msg)
     def get_pointcloud(self, candidates_set):
-        #print(f"get_current_pointcloud called")
-        pcd = o3d.geometry.PointCloud()
-        pcds = None
+        """
+        Accumulate a list of o3d.t.geometry.PointCloud objects into one.
+        Merges 'positions' and 'colors' if present.
+        """
+        pcd_acc = None
+
         for p in candidates_set["pcds"]:
-            pcd += p
-        return pcd
+            if pcd_acc is None:
+                pcd_acc = p
+            else:
+                pcd_acc.append(p)
+        return pcd_acc
 
     def get_marker_msg(self, candidate_set, query):
         marker_array = MarkerArray()
@@ -201,56 +218,17 @@ class ROS_VisionPipe(VisionPipe, Node):
         for box, prob in zip(candidate_set["boxes"], candidate_set["probs"]):
             #print(f"Processing box for query: {query}, score: {score}")
             #input(f"{box=}, {score=}")
-            prob = prob.item()
             r = 1-prob
             g = prob
             
             #print(type(r), type(g))
             #input(f"{r=}, {g=}")
-
-            box_marker = Marker()
-            box_marker.header.frame_id = self.vis_frame   # or your preferred frame
-            box_marker.ns = "boxes"
-            box_marker.id = id
-            box_marker.type = Marker.LINE_LIST
-            box_marker.action = Marker.ADD
-            box_marker.pose.orientation.w = 1.0  # No rotation
-            box_marker.scale.x = 0.01            # Line width in meters
-            box_marker.color.r = r*0.5
-            box_marker.color.g = g*0.5
-            box_marker.color.b = 0.0
-            box_marker.color.a = 0.5
-            box_marker.id = id
-            id += 1
-            #print(f"{dir(box)=}")
-            #input("Press Enter to continue...")
-            box_marker.points = box_to_points(box)
+            box_marker = box_to_marker(box.to_legacy(), [r, g, 0.0, 0.5], self.vis_frame, id)
             marker_array.markers.append(box_marker)
 
-
-            prob_marker = Marker()
-            prob_marker.header.frame_id = self.vis_frame
-            prob_marker.ns = "probs"
-            prob_marker.id = id
-            id += 1
-            prob_marker.type = Marker.TEXT_VIEW_FACING
-            prob_marker.action = Marker.ADD
-            #print(f"{dir(box)=}")
-            center = box.get_center()
-            #print(f"{center=}")
-            #input("Press Enter to continue...")
-
-            prob_marker.pose.position.x = center[0]
-            prob_marker.pose.position.y = center[1]
-            prob_marker.pose.position.z = center[2] # Slightly above the box
-            prob_marker.pose.orientation.w = 1.0
-            prob_marker.scale.z = 0.05  # Font size
-            prob_marker.color.r = r
-            prob_marker.color.g = g
-            prob_marker.color.b = 0.0
-            prob_marker.color.a = 1.0
-            prob_marker.text = f"{query.replace(' ', '')}:{prob:.2f}"
-            #print(f"{score_marker.text=}")
+            prob_marker = text_marker(f"{query.replace(' ', '')}:{prob:.2f}",
+                                       box.get_center().numpy().tolist(),
+                                        [r, g, 0.0, 0.5], self.vis_frame, id)
             marker_array.markers.append(prob_marker)
         return marker_array
 
@@ -325,7 +303,14 @@ class ExampleClient(Node):
             self.get_logger().info('Update Service not available, waiting again...')
         while not self.query_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Query Service not available, waiting again...')
-        self.pc_pub = self.create_publisher(PointCloud2, '/tracked_objects/pointcloud', 1)
+        qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5
+        )
+
+        self.pc_pub = self.create_publisher(PointCloud2, '/tracked_objects/pointcloud', qos)
         print("ExampleClient initialized and services are available.")
     def add_track_string(self, track_string):
         req = UpdateTrackedObject.Request()

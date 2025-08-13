@@ -33,7 +33,7 @@ os.makedirs(fig_dir, exist_ok=True)
 os.makedirs(os.path.join(fig_dir, "VisionPipeline"), exist_ok=True)
 
 
-from math_utils import iou_3d, in_image, is_obscured
+from math_utils import iou_3d, in_image, is_obscured, mahalanobis_distance
 from SAM2 import SAM2_PC
 from BBBackBones import OWLv2, Gemini_BB, YOLO_WORLD
 
@@ -61,7 +61,7 @@ class VisionPipe:
             raise ValueError(f"Unknown backbone {config['backbone']=}. Please choose 'gemini','owl' or 'yoloworld'.")
         self.sam2 = SAM2_PC()
         self.tracked_objects = {}
-        self.pose_time_tracker = ()
+        self.pose_time_tracker = []
         self.update_count = 0
 
     
@@ -80,8 +80,11 @@ class VisionPipe:
         elif config["candidate_match_method"] == "fscore":
             self.match_method = [o3dMetrics.FScore]
             self.match_threshold = config["fscore_match_threshold"]
+        elif config["candidate_match_method"] == "mahalanobis":
+            self.match_method = "mahalanobis"
+            self.match_threshold = config["mahalanobis_match_threshold"]
         else:
-            raise ValueError(f"Unknown match method {config['candidate_match_method']=}. Please choose 'iou','chamfer','hausdorff' or 'fscore'.")
+            raise ValueError(f"Unknown match method {config['candidate_match_method']=}. Please choose 'iou','chamfer','hausdorff', 'mahalanobis' or 'fscore'.")
 
 
     def update(self, rgb_img, depth_img, queries, I, obs_pose, time_stamp, debug):
@@ -116,7 +119,7 @@ class VisionPipe:
         
         out_str = "successfully_updated"
         if debug:
-            out_str+="\n\n\n"
+            out_str+="[VisionPipe update] end update\n\n\n"
 
         return True, "successfully updated"
     
@@ -163,6 +166,8 @@ class VisionPipe:
         distances = None
         if self.match_method == "iou":
             distances = [1 - iou_3d(candidate_box, box) for box in self.tracked_objects[obj_str]["boxes"][:n_considered]]
+        elif self.match_method == "mahalanobis":
+            distances = [mahalanobis_distance(candidate_pcd, tracked_pcd) for tracked_pcd in self.tracked_objects[obj_str]["pcds"][:n_considered]]
         else:
             distances = [candidate_pcd.compute_metrics(tracked_pcd, self.match_method, self.metric_parameters).item() for tracked_pcd in self.tracked_objects[obj_str]["pcds"][:n_considered]]
         if config["candidate_match_method"] == "fscore":
@@ -249,21 +254,21 @@ class VisionPipe:
                 if merge_idx is not None:
                     updated[merge_idx] = True
                 if debug:
-                    print(f"[VisionPipe update_tracked_objects]{obj_str=}, candidate {i} matched to tracked object {merge_idx}")
+                    if merge_idx is None:
+                        print(f"[VisionPipe update_tracked_objects]{obj_str=}, candidate {i} matched to tracked object {merge_idx}")
+                    else:
+                        print(f"[VisionPipe update_tracked_objects]{obj_str=}, candidate {i} matched to tracked object {merge_idx} {self.tracked_objects[obj_str]['names'][i]}")
             if debug:
-                print("\n\n")
+                print("\n")
             # If the object was not updated but it should've been, we need to update its belief score
             for i, (tracked_prob, pcd, obj_updated) in enumerate(zip(self.tracked_objects[obj_str]["probs"], self.tracked_objects[obj_str]["pcds"], updated)):
-                if obj_updated:
-                    continue
-                centroid = pcd.get_center().numpy()
+                if obj_updated or not in_image(pcd, obs_pose, I) or is_obscured(pcd, depth_img, obs_pose, I):
+                    if debug:
+                        print(f"[VisionPipe update_tracked_objects] tracked object {i} {self.tracked_objects[obj_str]['names'][i]} was not decayed {obj_updated=} in_image: {in_image(pcd, obs_pose, I)}, is_obscured: {is_obscured(pcd, depth_img, obs_pose, I)}")
 
-                if not in_image(centroid, obs_pose, I):
                     continue
-                
-                if is_obscured(pcd, depth_img, obs_pose, I):
-                    continue
-                
+                if debug:
+                    print(f"[VisionPipe update_tracked_objects] tracked object {i} {self.tracked_objects[obj_str]['names'][i]} did not match and was not in the image")
                 p_fn = config["vlm_false_negative_rate"]
 
                 self.tracked_objects[obj_str]["probs"][i] = self.belief_update(tracked_prob, p_fn)
@@ -311,212 +316,44 @@ class VisionPipe:
         return o3d.geometry.PointCloud(), 0.0
 
 
-def main():
-    import threading, time, traceback
-    from realsense_devices import RealSenseCamera
-
-
-
+if __name__ == "__main__":
+    from realsense_devices import vis_loop
+    
     queries = config["test_querys"]
 
-
-    # Display Variables 
-    running = True
-    lock = threading.Lock()
-    latest_pcs = {}
-    latest_bbs = {}
-    latest_probs = {}
-    TICK_PERIOD = 0.05
-    obs_pose = [0,0,0,0,0,0]
-    display_world = True
+    vp = VisionPipe()
     
-
-
-
-    # Open3D GUI setup 
-    app = gui.Application.instance
-    app.initialize()
-
-    vis = o3d.visualization.O3DVisualizer("RealSense 3D Viewer", 1024, 768)
-    vis.show_settings = True
-    
-    coord_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
-    vis.add_geometry("world_axis", coord_frame)
-
-    if display_world:
-        WORLD_MAX_POINTS = 300_000
-        positions_np = np.zeros((WORLD_MAX_POINTS, 3), dtype=np.float32)
-        colors_np = np.zeros((WORLD_MAX_POINTS, 3), dtype=np.float32)
-        device = o3d.core.Device("CPU:0")
-        world_pc = o3d.t.geometry.PointCloud()
-        world_pc.point["positions"] = o3d.core.Tensor(positions_np, o3d.core.float32, device)
-        world_pc.point["colors"]    = o3d.core.Tensor(colors_np,   o3d.core.float32, device)
-        vis.add_geometry("world_pc", world_pc)
-        latest_vertices = None
-        latest_colors = None
-
-
-    vis.reset_camera_to_default()
-    app.add_window(vis)
-
-    last_frame = set()
     do_debug = False
-    # ---- RealSense grabber thread (no GUI calls here) ----
-    def grabber():
-        nonlocal latest_pcs, latest_bbs, latest_probs, running
-        if display_world:
-            nonlocal latest_vertices, latest_colors
-        cam = None
-        vp = None
-        try:
-            vp = VisionPipe()
-            cam = RealSenseCamera()
-            # short warmup
-            for _ in range(10):
-                data = cam.get_data()
-                time.sleep(0.02)
-            fx=data['color_intrinsics'].fx
-            fy=data['color_intrinsics'].fy
-            cx=data['color_intrinsics'].ppx
-            cy=data['color_intrinsics'].ppy
-            width = data["color_intrinsics"].width
-            height = data["color_intrinsics"].height
-            intrinsics = {"fx": fx, "fy": fy, "cx": cx, "cy": cy, "width": width, "height": height}
-            while running:
-                data = cam.get_data()  # make sure this has a short internal timeout
-                rgb_img = data["color_img"]
-                depth_img = data["depth_img"] * cam.depth_scale
-                success, message = vp.update(rgb_img, depth_img, queries, intrinsics, obs_pose, time_stamp=time.time(), debug=do_debug)
-                # print(f"Update success: {success}, message: {message}")
+    def grabber_func(cam):
+        data = cam.get_data()  # make sure this has a short internal timeout
+        obs_pose = [0,0,0,0,0,0]
+        fx=data['color_intrinsics'].fx
+        fy=data['color_intrinsics'].fy
+        cx=data['color_intrinsics'].ppx
+        cy=data['color_intrinsics'].ppy
+        width = data["color_intrinsics"].width
+        height = data["color_intrinsics"].height
+        intrinsics = {"fx": fx, "fy": fy, "cx": cx, "cy": cy, "width": width, "height": height}
+        rgb_img = data["color_img"]
+        depth_img = data["depth_img"] * cam.depth_scale
+        success, message = vp.update(rgb_img, depth_img, queries, intrinsics, obs_pose, time_stamp=time.time(), debug=do_debug)
+        # print(f"Update success: {success}, message: {message}")
 
-                tmp_latest_bbs = {}
-                tmp_latest_pcs = {}
-                tmp_latest_probs = {}
-                for obj in vp.tracked_objects:
-                    tmp_latest_bbs[obj] = vp.tracked_objects[obj]["boxes"]
-                    tmp_latest_pcs[obj] = vp.tracked_objects[obj]["pcds"]
-                    tmp_latest_probs[obj] = vp.tracked_objects[obj]["probs"]
-          
+        tmp_latest_bbs = {}
+        tmp_latest_pcs = {}
+        tmp_latest_probs = {}
+        for obj in vp.tracked_objects:
+            tmp_latest_bbs[obj] = vp.tracked_objects[obj]["boxes"]
+            tmp_latest_pcs[obj] = vp.tracked_objects[obj]["pcds"]
+            tmp_latest_probs[obj] = vp.tracked_objects[obj]["probs"]
 
+        out_dict = {
+            "pcs": tmp_latest_pcs,
+            "bbs": tmp_latest_bbs,
+            "probs": tmp_latest_probs,
+            "vertices": data["vertices"],
+            "colors": data["colors"]
+        }
+        return out_dict
 
-                with lock:
-                    latest_pcs = tmp_latest_pcs
-                    latest_bbs = tmp_latest_bbs
-                    latest_probs = tmp_latest_probs
-                    if display_world:
-                        latest_vertices = data["vertices"]
-                        latest_colors = data["colors"]
-
-                # tiny nap to avoid maxing a CPU
-                time.sleep(0.1)
-        except Exception as e:
-            print("Grabber error:", e)
-            traceback.print_exc()
-        finally:
-            if cam:
-                try: cam.stop()
-                except Exception: pass
-
-    def pump():
-        pcs = None
-        bbs = None
-        with lock:
-            pcs   = {k: v[:] for k, v in latest_pcs.items()}
-            bbs   = {k: v[:] for k, v in latest_bbs.items()}
-            probs = {k: v[:] for k, v in latest_probs.items()}
-            if display_world:
-                verts = latest_vertices
-                colors = latest_colors
-
-        if not pcs or not bbs or not probs:
-            return
-        
-        flags = (rendering.Scene.UPDATE_POINTS_FLAG | rendering.Scene.UPDATE_COLORS_FLAG)
-        nonlocal last_frame
-        this_frame = set()
-
-        vis.clear_3d_labels()
-        for q in queries:
-            if q not in pcs or q not in bbs:
-                continue
-            q_pcs = pcs[q]
-            q_bboxs = bbs[q]
-            q_probs = probs[q]
-            assert len(q_pcs) == len(q_bboxs)
-            assert len(q_pcs) == len(q_probs)
-
-            for i in range(len(q_pcs)):
-                pcd = q_pcs[i]
-                bbox = q_bboxs[i]
-                prob = q_probs[i]
-
-                # Point cloud
-                name_pcd = f"{q.replace(' ', '_')}_pcd_{i}"
-                if name_pcd in last_frame:
-                    vis.remove_geometry(name_pcd)
-                vis.add_geometry(name_pcd, pcd) 
-                this_frame.add(name_pcd)
-                
-
-                # # Bounding box
-                name_bbox = f"{q.replace(' ', '_')}_bbox_{i}"
-                if name_bbox in last_frame:
-                    vis.remove_geometry(name_bbox)
-                legacy_bbox = bbox.to_legacy()
-                legacy_bbox.color = (1-prob, prob, 0)
-                vis.add_geometry(name_bbox, legacy_bbox)
-                this_frame.add(name_bbox)
-
-                vis.add_3d_label(pcd.get_center().numpy(), f"{q} {prob:.2f}")
-
-
-        for stale_geometry in (last_frame - this_frame):
-            vis.remove_geometry(stale_geometry)
-            
-        last_frame = this_frame
-
-        if display_world:
-            n = min(len(verts), WORLD_MAX_POINTS)
-            if n > 0:
-                # slice-assign into preallocated tensors (no reallocation)
-                world_pc.point["positions"][:n] = o3d.core.Tensor(verts[:n],  o3d.core.float32, device)
-                world_pc.point["colors"][:n]    =  o3d.core.Tensor(colors[:n],   o3d.core.float32, device)
-            if n < WORLD_MAX_POINTS:
-                # avoid NaNs; fill the tail with zeros
-                world_pc.point["positions"][n:] = 0
-                world_pc.point["colors"][n:]    = 0
-            flags = (rendering.Scene.UPDATE_POINTS_FLAG | rendering.Scene.UPDATE_COLORS_FLAG)
-            vis.update_geometry("world_pc", world_pc, flags)
-            vis.post_redraw()
-
-        vis.post_redraw()
-
-    def ticker():
-        while running:
-            try:
-                app.post_to_main_thread(vis, pump)
-            except Exception:
-                pass
-            time.sleep(TICK_PERIOD)
-
-    def on_close():
-        nonlocal running
-        running = False
-        return True
-    vis.set_on_close(on_close)
-
-    # Start threads
-    th_grab = threading.Thread(target=grabber, daemon=True)
-    th_tick = threading.Thread(target=ticker,  daemon=True)
-    th_grab.start(); th_tick.start()
-
-    try:
-        app.run()
-    finally:
-        # Stop threads and close plot
-        running = False
-        th_grab.join(timeout=2)
-        th_tick.join(timeout=2)
-
-if __name__ == "__main__":
-    main()
+    vis_loop(grabber_func)

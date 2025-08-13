@@ -8,6 +8,14 @@ from sensor_msgs_py   import point_cloud2
 from std_msgs.msg import Header
 import struct
 
+import os
+import json
+util_dir = os.path.dirname(os.path.realpath(__file__))
+parent_dir = os.path.join(util_dir, "..")
+
+config_path = os.path.join(parent_dir, 'config.json')
+config = json.load(open(config_path, 'r'))
+
 def iou_3d(bbox1: o3d.t.geometry.AxisAlignedBoundingBox,
            bbox2: o3d.t.geometry.AxisAlignedBoundingBox) -> float:
     """
@@ -114,97 +122,232 @@ def quat_to_euler(x, y, z, w):
     return np.array([roll, pitch, yaw])
 
 
-def in_image(point: np.ndarray,
-             obs_pose: np.ndarray,
-             I: dict) -> bool:
+def in_image(
+    pcd: o3d.t.geometry.PointCloud,
+    obs_pose: np.ndarray,
+    I: dict,
+) -> bool:
     """
-    Check if a 3D point in world coordinates projects into the image frame.
-
-    Args:
-        point: (3,) array giving the 3D point in world coordinates.
-        obs_pose: (6,) array or list [x, y, z, roll, pitch, yaw] for camera pose in world.
-        I: dict with camera intrinsics:
-            - 'fx', 'fy': focal lengths
-            - 'cx', 'cy': principal point
-            - 'width', 'height': image size
-            - 'model', 'coeffs': distortion model & parameters (ignored here if coeffs==0)
-
-    Returns:
-        True if the point projects within [0,width)x[0,height) and z_cam>0, else False.
+    Return True if at least `visible_portion_requirement` of the point cloud
+    projects inside the image bounds with z_cam > 0.
     """
-    # 1) build the camera-to-world transform, then invert to get world→camera
+    # --- read & validate threshold (global config) ---
+    thr = float(config['visible_portion_requirement'])
+    if not (0.0 < thr < 1.0):
+        raise ValueError("config['visible_portion_requirement'] must be in (0,1).")
+
+    # --- get point positions as numpy (CPU) ---
+    if len(pcd.point) == 0:
+        return False
+
+    if "positions" in pcd.point:
+        pts = pcd.point["positions"].cpu().numpy()  # (N,3)
+    else:
+        try:
+            pts = pcd.point.positions.cpu().numpy()
+        except AttributeError:
+            raise ValueError("PointCloud has no 'positions' attribute.")
+
+    N = pts.shape[0]
+    if N == 0:
+        return False
+
+    # --- world→camera transform ---
     T_cam2world = pose_to_matrix(obs_pose)
     T_world2cam = np.linalg.inv(T_cam2world)
 
-    # 2) homogeneous world point → camera frame
-    p_w = np.ones(4)
-    p_w[:3] = point
-    p_cam = T_world2cam @ p_w
-    x_cam, y_cam, z_cam = p_cam[:3]
+    # Vectorized homogeneous transform
+    pts_h = np.concatenate([pts, np.ones((N, 1), dtype=pts.dtype)], axis=1)
+    p_cam = pts_h @ T_world2cam.T
+    x_cam, y_cam, z_cam = p_cam[:, 0], p_cam[:, 1], p_cam[:, 2]
 
-    # 3) must be in front of camera
-    if z_cam <= 0:
+    # In front of camera
+    front = z_cam > 0.0
+    if not np.any(front):
         return False
 
-    # 4) pinhole projection (no distortion since coeffs are zero)
-    u = I['fx'] * (x_cam / z_cam) + I['cx']
-    v = I['fy'] * (y_cam / z_cam) + I['cy']
+    # --- pinhole projection ---
+    u = I['fx'] * (x_cam[front] / z_cam[front]) + I['cx']
+    v = I['fy'] * (y_cam[front] / z_cam[front]) + I['cy']
 
-    # 5) check image bounds
-    in_x = (0.0 <= u) and (u < I['width'])
-    in_y = (0.0 <= v) and (v < I['height'])
-    return in_x and in_y
+    # --- bounds check ---
+    in_x = (u >= 0.0) & (u < float(I['width']))
+    in_y = (v >= 0.0) & (v < float(I['height']))
+    visible_mask = in_x & in_y
+
+    visible_fraction = visible_mask.sum() / float(N)
+    return visible_fraction >= thr
+
 
 def is_obscured(
     pcd: o3d.t.geometry.PointCloud,
     depth_image: np.ndarray,
-    cam_pose: list,
+    cam_pose,
     I: dict,
-    occlusion_tol: float = 1e-3,
-    obscured_fraction: float = 0.1
 ) -> bool:
     """
-    Returns True if ≥ obscured_fraction of pcd is hidden (depth_image closer).
-    Works with open3d.t.geometry.PointCloud.
-    
-    cam_pose: list (flat 16, nested 4×4, or 7-element pose).
-    I: {"fx","fy","cx","cy","width","height"}.
+    Returns True if ≥ (1 - visible_portion_requirement) of the *valid projected* points
+    are occluded by the depth image (depth closer than the point by > occlusion_tol).
+
+    Notes:
+      - Uses global `config["visible_portion_requirement"]` in (0,1).
+      - Points behind the camera, outside bounds, or mapping to invalid depth
+        samples are excluded from the denominator. If none remain, returns False.
     """
-    # 1) Build world→camera matrix
-    T_wc = pose_to_matrix(cam_pose)  # assumed defined elsewhere
+    # --- read threshold from global config and map to occluded fraction ---
+    occlusion_tol = float(config['occlusion_tol'])
+    thr = float(config['visible_portion_requirement'])
+    if not (0.0 < thr < 1.0):
+        raise ValueError("config['visible_portion_requirement'] must be in (0,1).")
+    thr_occ = 1.0 - thr
+
+    # --- fetch points (CPU numpy) ---
+    if "positions" in pcd.point:
+        pts = pcd.point["positions"].cpu().numpy()
+    else:
+        try:
+            pts = pcd.point.positions.cpu().numpy()
+        except AttributeError:
+            raise ValueError("PointCloud has no 'positions' attribute.")
+    if pts.shape[0] == 0:
+        return False
+
+    # --- world→camera transform ---
+    T_wc = pose_to_matrix(cam_pose)
     T_cw = np.linalg.inv(T_wc)
 
-    # 2) Transform points into camera frame
-    pts = pcd.point["positions"].cpu().numpy()  # Nx3 NumPy array
-    pts_h = np.hstack([pts, np.ones((pts.shape[0], 1), dtype=pts.dtype)])
+    # --- transform to camera frame (vectorized) ---
+    pts_h = np.concatenate([pts, np.ones((pts.shape[0], 1), dtype=pts.dtype)], axis=1)
     pts_cam = (T_cw @ pts_h.T).T[:, :3]
 
-    # 3) Keep only points in front of camera
-    mask_front = pts_cam[:, 2] > 0
-    pts_cam = pts_cam[mask_front]
-    if pts_cam.size == 0:
+    # --- keep points in front of camera ---
+    z = pts_cam[:, 2]
+    front = z > 0.0
+    if not np.any(front):
+        return False
+    pts_cam = pts_cam[front]
+    z = z[front]
+
+    # --- project to pixel indices (nearest) ---
+    fx, fy, cx, cy = I["fx"], I["fy"], I["cx"], I["cy"]
+    u = np.round(pts_cam[:, 0] * fx / z + cx).astype(int)
+    v = np.round(pts_cam[:, 1] * fy / z + cy).astype(int)
+
+    H, W = int(I["height"]), int(I["width"])
+    in_bounds = (u >= 0) & (u < W) & (v >= 0) & (v < H)
+    if not np.any(in_bounds):
         return False
 
-    # 4) Project to pixel coordinates
-    fx, fy = I["fx"], I["fy"]
-    cx, cy = I["cx"], I["cy"]
-    us = np.round(pts_cam[:, 0] * fx / pts_cam[:, 2] + cx).astype(int)
-    vs = np.round(pts_cam[:, 1] * fy / pts_cam[:, 2] + cy).astype(int)
+    u, v, z = u[in_bounds], v[in_bounds], z[in_bounds]
 
-    H, W = I["height"], I["width"]
-    valid = (us >= 0) & (us < W) & (vs >= 0) & (vs < H)
-    us, vs, zs = us[valid], vs[valid], pts_cam[valid, 2]
-    if zs.size == 0:
+    # --- sample depth and keep valid ---
+    depth_samples = depth_image[v, u]
+    valid_depth = (depth_samples > 0) & np.isfinite(depth_samples)
+    if not np.any(valid_depth):
         return False
 
-    # 5) Compare to depth image
-    depth_at = depth_image[vs, us]
-    good = (depth_at > 0) & np.isfinite(depth_at)
-    zs, depth_at = zs[good], depth_at[good]
-    if zs.size == 0:
-        return False
+    z = z[valid_depth]
+    depth_samples = depth_samples[valid_depth]
 
-    occluded = depth_at + occlusion_tol < zs
-    frac = np.count_nonzero(occluded) / zs.size
+    # --- occlusion test ---
+    occluded = depth_samples + occlusion_tol < z
+    occ_frac = np.count_nonzero(occluded) / occluded.size
 
-    return frac >= obscured_fraction
+    return occ_frac >= thr_occ
+
+
+def _positions_np(pcd: o3d.t.geometry.PointCloud) -> np.ndarray:
+    """Return (N,3) float64 NumPy array of positions from a tensor point cloud."""
+    if pcd.is_empty():
+        return np.empty((0, 3), dtype=np.float64)
+    # Prefer standard key; fall back to attribute access for older/newer APIs
+    if "positions" in pcd.point:
+        t = pcd.point["positions"]
+    else:
+        try:
+            t = pcd.point.positions
+        except AttributeError:
+            raise ValueError("PointCloud has no 'positions' attribute.")
+    arr = t.cpu().numpy()
+    if arr.ndim != 2 or arr.shape[1] != 3:
+        raise ValueError(f"'positions' must have shape (N,3), got {arr.shape}")
+    return arr.astype(np.float64, copy=False)
+
+def _mean_cov(pts: np.ndarray) -> tuple[np.ndarray, np.ndarray, int]:
+    """Return (mean(3,), cov(3,3), n). Uses sample covariance (ddof=1)."""
+    n = int(pts.shape[0])
+    if n == 0:
+        return np.zeros(3, dtype=np.float64), np.zeros((3,3), dtype=np.float64), 0
+    mu = pts.mean(axis=0)
+    if n < 2:
+        return mu, np.zeros((3,3), dtype=np.float64), n
+    C = np.cov(pts, rowvar=False, ddof=1)
+    return mu, np.asarray(C, dtype=np.float64).reshape(3,3), n
+
+def mahalanobis_distance(
+    pcd_a: o3d.t.geometry.PointCloud,
+    pcd_b: o3d.t.geometry.PointCloud,
+    cov_mode: str = "pooled",   # {"pooled","avg","a","b","diag-pooled","identity"}
+    eps: float = 1e-6,
+) -> float:
+    """
+    Mahalanobis distance between two point clouds modeled as Gaussians:
+        d = sqrt( (μa - μb)^T Σ^{-1} (μa - μb) )
+    Σ is chosen by `cov_mode`. Uses only NumPy and the tensor API.
+    """
+    A = _positions_np(pcd_a)
+    B = _positions_np(pcd_b)
+    if A.shape[0] == 0 or B.shape[0] == 0:
+        raise ValueError("Both point clouds must contain at least one point.")
+
+    mu_a, C_a, n_a = _mean_cov(A)
+    mu_b, C_b, n_b = _mean_cov(B)
+    dmu = mu_a - mu_b
+
+    cov_mode = cov_mode.lower()
+    if cov_mode == "pooled":
+        denom = max(n_a + n_b - 2, 1)
+        if n_a >= 2 and n_b >= 2:
+            Sigma = ((max(n_a-1,0)*C_a) + (max(n_b-1,0)*C_b)) / denom
+        elif n_a >= 2:
+            Sigma = C_a
+        elif n_b >= 2:
+            Sigma = C_b
+        else:
+            Sigma = np.eye(3)
+    elif cov_mode == "avg":
+        Sigma = 0.5 * (C_a + C_b)
+    elif cov_mode == "a":
+        Sigma = C_a if n_a >= 2 else (C_b if n_b >= 2 else np.eye(3))
+    elif cov_mode == "b":
+        Sigma = C_b if n_b >= 2 else (C_a if n_a >= 2 else np.eye(3))
+    elif cov_mode == "diag-pooled":
+        # diagonal-only pooled covariance for robustness
+        denom = max(n_a + n_b - 2, 1)
+        if n_a >= 2 and n_b >= 2:
+            pooled = ((max(n_a-1,0)*C_a) + (max(n_b-1,0)*C_b)) / denom
+        elif n_a >= 2:
+            pooled = C_a
+        elif n_b >= 2:
+            pooled = C_b
+        else:
+            pooled = np.eye(3)
+        Sigma = np.diag(np.clip(np.diag(pooled), eps, None))
+    elif cov_mode == "identity":
+        Sigma = np.eye(3)
+    else:
+        raise ValueError(f"Unknown cov_mode '{cov_mode}'.")
+
+    # Regularize and compute distance (prefer Cholesky; fallback to pinv)
+    if not np.isfinite(Sigma).all() or np.allclose(Sigma, 0):
+        Sigma = np.eye(3)
+    Sigma_reg = Sigma + float(eps) * np.eye(3)
+
+    try:
+        L = np.linalg.cholesky(Sigma_reg)
+        y = np.linalg.solve(L, dmu)
+        dist2 = float(y @ y)
+    except np.linalg.LinAlgError:
+        dist2 = float(dmu @ (np.linalg.pinv(Sigma_reg) @ dmu))
+
+    return float(np.sqrt(max(dist2, 0.0)))

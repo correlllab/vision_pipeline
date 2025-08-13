@@ -13,6 +13,7 @@ from rclpy.time import Time
 from rclpy.duration import Duration
 
 from rclpy.node import Node
+from visualization_msgs.msg import Marker
 
 
 from math_utils import quat_to_euler
@@ -89,7 +90,6 @@ def box_to_points(box):
         points.append(p2)
     return points
 
-
 def _get_field_info(fields):
     field_info = {}
     for f in fields:
@@ -112,27 +112,46 @@ def _get_type_size(datatype):
     if datatype == PointField.FLOAT64: return 8
     return 0
 
-# --- pcd_to_msg (remains unchanged from previous correct version) ---
-def pcd_to_msg(pcd: o3d.geometry.PointCloud, frame_id: str) -> PointCloud2:
+# ================================================================
+# pcd_to_msg  (UPDATED for o3d.t.geometry.PointCloud)
+# ================================================================
+def pcd_to_msg(pcd: o3d.t.geometry.PointCloud, frame_id: str) -> PointCloud2:
     """
-    Converts an Open3D PointCloud to a ROS2 PointCloud2 message without ros2_numpy.
-    Assumes pcd has points and colors.
+    Converts an Open3D *Tensor* PointCloud (o3d.t.geometry.PointCloud) to a ROS2 PointCloud2.
+    Assumes 'positions' exist; 'colors' optional (if absent, colors default to zeros).
+    Encodes RGB as a packed float32 in a field named 'rgb'.
     """
-    if not pcd.has_points():
-        print("Warning: Open3D PointCloud has no points to convert to ROS2 message.")
+    if "positions" not in pcd.point or pcd.point["positions"].shape[0] == 0:
+        print("Warning: Tensor PointCloud has no positions to convert to ROS2 message.")
         return PointCloud2()
 
-    points_np = np.asarray(pcd.points)
-    colors_np = np.asarray(pcd.colors)
+    # --- Pull tensor data as numpy ---
+    pts = pcd.point["positions"].numpy()  # shape [N,3], dtype typically float32/float64
+    if pts.dtype != np.float32:
+        pts = pts.astype(np.float32, copy=False)
 
-    rgb_uint8 = (colors_np * 255).astype(np.uint8)
+    N = pts.shape[0]
 
+    if "colors" in pcd.point:
+        cols = pcd.point["colors"].numpy()  # assume [0,1] float or [0..255] uint8
+        if cols.dtype == np.uint8:
+            rgb_uint8 = cols
+        else:
+            rgb_uint8 = np.clip(cols, 0.0, 1.0) * 255.0
+            rgb_uint8 = rgb_uint8.astype(np.uint8)
+    else:
+        # Default to black if colors missing
+        rgb_uint8 = np.zeros((N, 3), dtype=np.uint8)
+
+    # Pack into 0xRRGGBB as uint32, then view as float32
     rgb_packed_uint32 = (
         (rgb_uint8[:, 0].astype(np.uint32) << 16) |
         (rgb_uint8[:, 1].astype(np.uint32) << 8)  |
         (rgb_uint8[:, 2].astype(np.uint32))
     )
+    rgb_packed_float32 = rgb_packed_uint32.view(np.float32)
 
+    # Build structured array for PointCloud2
     dtype = np.dtype([
         ('x', np.float32),
         ('y', np.float32),
@@ -140,104 +159,91 @@ def pcd_to_msg(pcd: o3d.geometry.PointCloud, frame_id: str) -> PointCloud2:
         ('rgb', np.float32)
     ])
 
-    pc_data_structured = np.zeros(len(points_np), dtype=dtype)
-    pc_data_structured['x'] = points_np[:, 0]
-    pc_data_structured['y'] = points_np[:, 1]
-    pc_data_structured['z'] = points_np[:, 2]
-    pc_data_structured['rgb'] = rgb_packed_uint32.view(np.float32)
+    pc_struct = np.zeros(N, dtype=dtype)
+    pc_struct['x'] = pts[:, 0]
+    pc_struct['y'] = pts[:, 1]
+    pc_struct['z'] = pts[:, 2]
+    pc_struct['rgb'] = rgb_packed_float32
 
     header = Header()
     header.frame_id = frame_id
 
-    fields = []
-    fields.append(PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1))
-    fields.append(PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1))
-    fields.append(PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1))
-    fields.append(PointField(name='rgb', offset=12, datatype=PointField.FLOAT32, count=1))
-
-    point_step = pc_data_structured.dtype.itemsize
-    row_step = point_step * len(points_np)
+    fields = [
+        PointField(name='x',   offset=0,  datatype=PointField.FLOAT32, count=1),
+        PointField(name='y',   offset=4,  datatype=PointField.FLOAT32, count=1),
+        PointField(name='z',   offset=8,  datatype=PointField.FLOAT32, count=1),
+        PointField(name='rgb', offset=12, datatype=PointField.FLOAT32, count=1),
+    ]
 
     msg = PointCloud2()
     msg.header = header
     msg.height = 1
-    msg.width = len(points_np)
+    msg.width = N
     msg.fields = fields
     msg.is_bigendian = False
-    msg.point_step = point_step
-    msg.row_step = row_step
+    msg.point_step = pc_struct.dtype.itemsize
+    msg.row_step = msg.point_step * N
     msg.is_dense = True
-    msg.data = pc_data_structured.tobytes()
-
+    msg.data = pc_struct.tobytes()
     return msg
 
-# --- msg_to_pcd (UPDATED to fix ValueError) ---
-def msg_to_pcd(msg: PointCloud2) -> o3d.geometry.PointCloud:
+# ================================================================
+# msg_to_pcd  (UPDATED to return o3d.t.geometry.PointCloud)
+# ================================================================
+def msg_to_pcd(msg: PointCloud2) -> o3d.t.geometry.PointCloud:
     """
-    Inverse of pcd_to_msg. Converts a ROS2 PointCloud2 message to an Open3D PointCloud
-    by manually parsing the data field.
-    Assumes the PointCloud2 message has 'x', 'y', 'z' and 'rgb' (packed float32) fields.
+    Converts a ROS2 PointCloud2 message (with fields x,y,z and packed float32 'rgb')
+    into an Open3D *Tensor* PointCloud (o3d.t.geometry.PointCloud).
     """
-    pcd = o3d.geometry.PointCloud()
+    pcd_t = o3d.t.geometry.PointCloud()
 
     total_points = msg.width * msg.height
     if total_points == 0:
         print("Warning: Received empty PointCloud2 message.")
-        return pcd
+        return pcd_t
 
     field_info = _get_field_info(msg.fields)
+    if not all(k in field_info for k in ("x", "y", "z")):
+        print("Error: PointCloud2 missing 'x', 'y', or 'z' fields.")
+        return pcd_t
 
-    if not all(f in field_info for f in ['x', 'y', 'z']):
-        print("Error: PointCloud2 message missing 'x', 'y', or 'z' fields.")
-        return pcd
-
-    xyz_list = []
-    rgb_list = []
-    has_rgb = 'rgb' in field_info and field_info['rgb']['datatype'] == PointField.FLOAT32
+    has_rgb = ('rgb' in field_info and
+               field_info['rgb']['datatype'] == PointField.FLOAT32)
 
     endian_char = '<' if not msg.is_bigendian else '>'
-    format_float32 = endian_char + 'f'
+    fmt_f32 = endian_char + 'f'
+
+    xyz = np.empty((total_points, 3), dtype=np.float32)
+    cols = np.empty((total_points, 3), dtype=np.float32) if has_rgb else None
 
     for i in range(total_points):
-        point_start_offset = i * msg.point_step
-
-        x_offset = field_info['x']['offset']
-        y_offset = field_info['y']['offset']
-        z_offset = field_info['z']['offset']
-
-        x = struct.unpack_from(format_float32, msg.data, point_start_offset + x_offset)[0]
-        y = struct.unpack_from(format_float32, msg.data, point_start_offset + y_offset)[0]
-        z = struct.unpack_from(format_float32, msg.data, point_start_offset + z_offset)[0]
-        xyz_list.append([x, y, z])
+        base = i * msg.point_step
+        x = struct.unpack_from(fmt_f32, msg.data, base + field_info['x']['offset'])[0]
+        y = struct.unpack_from(fmt_f32, msg.data, base + field_info['y']['offset'])[0]
+        z = struct.unpack_from(fmt_f32, msg.data, base + field_info['z']['offset'])[0]
+        xyz[i, :] = (x, y, z)
 
         if has_rgb:
-            rgb_offset = field_info['rgb']['offset']
-            rgb_packed_float32 = struct.unpack_from(format_float32, msg.data, point_start_offset + rgb_offset)[0]
+            rgb_f32 = struct.unpack_from(fmt_f32, msg.data, base + field_info['rgb']['offset'])[0]
+            # Avoid 0-d dtype change issue by using a 1D array then viewing
+            rgb_u32 = np.array([rgb_f32], dtype=np.float32).view(np.uint32)[0]
+            r = (rgb_u32 >> 16) & 0xFF
+            g = (rgb_u32 >> 8)  & 0xFF
+            b = (rgb_u32)       & 0xFF
+            cols[i, :] = (r/255.0, g/255.0, b/255.0)
 
-            # --- FIX FOR ValueError: Changing the dtype of a 0d array is only supported if the itemsize is unchanged ---
-            # Ensure we operate on a 1D array view, even if it has one element.
-            # Convert the scalar float to a 1-element numpy array before viewing.
-            rgb_packed_uint32 = np.array([rgb_packed_float32], dtype=np.float32).view(np.uint32)[0]
-            # .item() is then called on the single element of the 1D array, or directly use the [0] index
-            # This ensures that .view() is called on an array whose itemsize doesn't change from float32 to uint32
-            # because the float32 array is 1D.
+    # Fill tensor point cloud
+    pcd_t.point["positions"] = o3d.core.Tensor(xyz, dtype=o3d.core.Dtype.Float32)
 
-            r = ((rgb_packed_uint32 >> 16) & 0x0000FF)
-            g = ((rgb_packed_uint32 >> 8) & 0x0000FF)
-            b = ((rgb_packed_uint32) & 0x0000FF)
-
-            rgb_list.append([r / 255.0, g / 255.0, b / 255.0])
-
-    pcd.points = o3d.utility.Vector3dVector(np.asarray(xyz_list))
-    if has_rgb and rgb_list:
-        pcd.colors = o3d.utility.Vector3dVector(np.asarray(rgb_list))
-        #print("Info: Extracted XYZ and RGB colors from PointCloud2.")
-    elif has_rgb and not rgb_list:
-        print("Warning: PointCloud2 message had 'rgb' field but no color data was extracted (possibly empty cloud).")
+    if has_rgb:
+        if total_points > 0:
+            pcd_t.point["colors"] = o3d.core.Tensor(cols, dtype=o3d.core.Dtype.Float32)
+        else:
+            print("Warning: 'rgb' field present but no color data extracted.")
     else:
-        print("Warning: PointCloud2 message does not contain a valid 'rgb' field. Only XYZ points extracted.")
+        print("Info: 'rgb' field not present or not FLOAT32; only XYZ set.")
 
-    return pcd
+    return pcd_t
 
 def transform_to_matrix(tf_msg):
     """
@@ -275,7 +281,7 @@ class TFHandler:
     """
     A reusable class to handle TF2 transformations.
     """
-    def __init__(self, node: Node, cache_time: float = 120.0):
+    def __init__(self, node: Node, cache_time: float = 1200.0):
         """
         Initializes the TF handler.
         
@@ -285,6 +291,7 @@ class TFHandler:
         """
         self.node = node
         self._buffer = Buffer(cache_time=Duration(seconds=cache_time))
+        # print(f"\n\n{dir(self._buffer)=}")
         # The TransformListener should be spun. Setting spin_thread=True handles this automatically.
         self._listener = TransformListener(self._buffer, node, spin_thread=True)
 
@@ -311,18 +318,9 @@ class TFHandler:
         stamp = time_stamp if isinstance(time_stamp, Time) else Time.from_msg(time_stamp)
         
         try:
-            # Check if the transform is possible
-            if not self._buffer.can_transform(
-                target_frame, source_frame, stamp, timeout=Duration(seconds=timeout_sec)
-            ):
-                self.node.get_logger().info(
-                    f"TF unavailable: Cannot transform from '{source_frame}' to '{target_frame}'",
-                    throttle_duration_sec=2.0
-                )
-                return None
             
             # Perform the lookup
-            xf = self._buffer.lookup_transform(target_frame, source_frame, stamp)
+            xf = self._buffer.lookup_transform(target_frame, source_frame, stamp, timeout=Duration(seconds=timeout_sec))
             return xf.transform
 
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
@@ -360,3 +358,42 @@ class TFHandler:
         roll, pitch, yaw = quat_to_euler(q.x, q.y, q.z, q.w)
         
         return [t.x, t.y, t.z, roll, pitch, yaw]
+
+
+def box_to_marker(box, color, frame, id):
+    box_marker = Marker()
+    box_marker.header.frame_id = frame   # or your preferred frame
+    box_marker.ns = "boxes"
+    box_marker.id = id
+    box_marker.type = Marker.LINE_LIST
+    box_marker.action = Marker.ADD
+    box_marker.pose.orientation.w = 1.0  # No rotation
+    box_marker.scale.x = 0.01            # Line width in meters
+    box_marker.color.r = color[0]
+    box_marker.color.g = color[1]
+    box_marker.color.b = color[2]
+    box_marker.color.a = color[3]
+    box_marker.id = id
+    #print(f"{dir(box)=}")
+    #input("Press Enter to continue...")
+    box_marker.points = box_to_points(box)
+    return box_marker
+
+def text_marker(text, position, color, frame, id):
+    text_marker = Marker()
+    text_marker.header.frame_id = frame
+    text_marker.ns = "text"
+    text_marker.id = id
+    text_marker.type = Marker.TEXT_VIEW_FACING
+    text_marker.action = Marker.ADD
+    text_marker.pose.position.x = position[0]
+    text_marker.pose.position.y = position[1]
+    text_marker.pose.position.z = position[2]
+    text_marker.pose.orientation.w = 1.0
+    text_marker.scale.z = 0.05  # Font size
+    text_marker.color.r = color[0]
+    text_marker.color.g = color[1]
+    text_marker.color.b = color[2]
+    text_marker.color.a = color[3]
+    text_marker.text = text
+    return text_marker
