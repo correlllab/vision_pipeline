@@ -46,7 +46,8 @@ config = json.load(open(config_path, 'r'))
 #from SAM2 import SAM2_PC
 #from BBBackBones import Gemini_BB, OWLv2
 from ros_utils import decode_compressed_depth_image, TFHandler
-from math_utils import pose_to_matrix, matrix_to_pose
+from math_utils import pose_to_matrix, matrix_to_pose, annotate_2d_candidates
+
 
 
 class RealSenseSubscriber(Node):
@@ -88,7 +89,7 @@ class RealSenseSubscriber(Node):
         )
         self.create_subscription(
             CameraInfo,
-            f"{camera_name_space}/depth/camera_info",
+            f"{camera_name_space}/color/camera_info",
             self._info_callback,
             sensor_data_qos,
         )
@@ -221,74 +222,14 @@ def TestSubscriber(args=None):
         cv2.destroyAllWindows()
 
 
-def annotate_detections(img_np: np.ndarray, detections: dict, score_thresh: float = 0.0) -> np.ndarray:
-    """
-    Returns a copy of the image with boxes and labels drawn.
-    Box & text color: Red = 1 - prob, Green = prob.
-    
-    Parameters
-    ----------
-    img_np : np.ndarray
-        HxWx3 uint8 NumPy image (BGR format expected for OpenCV drawing).
-    detections : dict
-        {
-            "label1": {"boxes": [[x1,y1,x2,y2], ...], "probs": [p1, p2, ...]},
-            ...
-        }
-    score_thresh : float
-        Minimum probability for drawing a detection.
-    
-    Returns
-    -------
-    np.ndarray
-        Annotated image (BGR).
-    """
-    
-    def prob_to_color(prob: float) -> tuple:
-        """Convert probability to BGR color."""
-        r = int((1.0 - prob) * 255)
-        g = int(prob * 255)
-        return (0, g, r)  # OpenCV uses BGR
 
-    def draw_box(img, box, label_text, color, thickness=2):
-        """Draw rectangle and filled label background."""
-        x1, y1, x2, y2 = map(int, box)
-        cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness)
-
-        font       = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = max(0.4, min(img.shape[1], img.shape[0]) / 1000.0)
-        t          = max(1, thickness)
-        (tw, th), baseline = cv2.getTextSize(label_text, font, font_scale, t)
-
-        tb_x1, tb_y1 = x1, max(0, y1 - th - baseline - 3)
-        tb_x2, tb_y2 = x1 + tw + 6, tb_y1 + th + baseline + 3
-        cv2.rectangle(img, (tb_x1, tb_y1), (tb_x2, tb_y2), color, -1)
-        cv2.putText(img, label_text, (tb_x1 + 3, tb_y2 - baseline - 2),
-                    font, font_scale, (0, 0, 0), t, cv2.LINE_AA)
-
-    # Work on a copy
-    annotated_img = img_np.copy()
-
-    for label, data in detections.items():
-        boxes = data.get("boxes", [])
-        probs = data.get("probs", [])
-        n = min(len(boxes), len(probs)) if probs else len(boxes)
-
-        for i in range(n):
-            p = probs[i] if probs and i < len(probs) else 0.0
-            if p < score_thresh:
-                continue
-            color = prob_to_color(p)
-            text = f"{label} {p:.2f}"
-            draw_box(annotated_img, boxes[i], text, color)
-
-    return annotated_img
 
 def TestFoundationModels(args=None):
     from BBBackBones import Gemini_BB, OWLv2, YOLO_WORLD 
     from SAM2 import SAM2_PC
     from visualization_msgs.msg import Marker, MarkerArray
     from ros_utils import pcd_to_msg, box_to_marker, text_marker
+    import random
     rclpy.init(args=args)
     sub = RealSenseSubscriber(config["rs_name_spaces"][0])
     # QoS for sensor data (Best effort + TRANSIENT_LOCAL)
@@ -343,32 +284,52 @@ def TestFoundationModels(args=None):
                 "masked_rgb": rgb_masks,
                 "masked_depth": depth_masks
             }
-        
+        clear_arr = MarkerArray()
+        clear_marker = Marker()
+        clear_marker.action = Marker.DELETEALL
+        clear_marker.header.stamp = sub.get_clock().now().to_msg()
+        clear_marker.header.frame_id = config["base_frame"]
+
+        clear_arr.markers.append(clear_marker)
+        marker_pub.publish(clear_arr)
+
+
         Marker_Arr = MarkerArray()
         marker_id = 1
         pcd_acc = None
+        box_counter = 0
+        text_counter = 0
+        pcd_counter = 0
         for q in candidates_3d:
-            for pcd in candidates_3d[q]["pcds"]:
+            pcds = candidates_3d[q]["pcds"]
+            for pcd in pcds:
                 if pcd_acc is None:
                     pcd_acc = pcd
                 else:    
-                    pcd_acc.append(pcd)
+                    pcd_acc = pcd_acc.append(pcd)
+                pcd_counter += 1
             boxes = candidates_3d[q]["boxes"]
             probs = candidates_3d[q]["probs"]
+            assert len(boxes) == len(probs)
             for i, (box, prob) in enumerate(zip(boxes, probs)):
+                box_counter += 1
                 bbox_3d = box_to_marker(box.to_legacy(), [1-prob, prob, 0.0, 1.0], config["base_frame"], marker_id)
                 Marker_Arr.markers.append(bbox_3d)
                 marker_id += 1
-                prob_text = text_marker(f"{q}_{i}: {prob:.2f}", box.get_center().numpy().tolist(), [1-prob, prob, 0.0, 1.0], config["base_frame"], marker_id)
+
+                text_counter += 1
+                prob_text = text_marker(f"{q.replace(' ', '')}_{i}:{prob:.2f}", box.to_legacy().get_center().tolist(), [1-prob, prob, 0.0, 1.0], config["base_frame"], marker_id)
                 Marker_Arr.markers.append(prob_text)
                 marker_id += 1
+                
+               
         
         pc_pub.publish(pcd_to_msg(pcd_acc, config['base_frame']))
         marker_pub.publish(Marker_Arr)
-        annoted_image = annotate_detections(rgb_img, predictions_2d, score_thresh=0.0)
+        annoted_image = annotate_2d_candidates(rgb_img, predictions_2d, score_thresh=0.0)
         img_msg = sub.bridge.cv2_to_imgmsg(annoted_image, encoding='bgr8')
         img_msg.header.stamp = sub.get_clock().now().to_msg()
         img_msg.header.frame_id = info.header.frame_id
         img_pub.publish(img_msg)
-        print("published")
+        print(f"published Pointclouds: {pcd_counter}, Boxes:{box_counter}, Text: {text_counter}")
     return None

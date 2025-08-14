@@ -351,3 +351,67 @@ def mahalanobis_distance(
         dist2 = float(dmu @ (np.linalg.pinv(Sigma_reg) @ dmu))
 
     return float(np.sqrt(max(dist2, 0.0)))
+
+
+def annotate_2d_candidates(img_np: np.ndarray, detections: dict, score_thresh: float = 0.0) -> np.ndarray:
+    """
+    Returns a copy of the image with boxes and labels drawn.
+    Box & text color: Red = 1 - prob, Green = prob.
+    
+    Parameters
+    ----------
+    img_np : np.ndarray
+        HxWx3 uint8 NumPy image (BGR format expected for OpenCV drawing).
+    detections : dict
+        {
+            "label1": {"boxes": [[x1,y1,x2,y2], ...], "probs": [p1, p2, ...]},
+            ...
+        }
+    score_thresh : float
+        Minimum probability for drawing a detection.
+    
+    Returns
+    -------
+    np.ndarray
+        Annotated image (BGR).
+    """
+    
+    def prob_to_color(prob: float) -> tuple:
+        """Convert probability to BGR color."""
+        r = int((1.0 - prob) * 255)
+        g = int(prob * 255)
+        return (0, g, r)  # OpenCV uses BGR
+
+    def draw_box(img, box, label_text, color, thickness=2):
+        """Draw rectangle and filled label background."""
+        x1, y1, x2, y2 = map(int, box)
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness)
+
+        font       = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = max(0.4, min(img.shape[1], img.shape[0]) / 1000.0)
+        t          = max(1, thickness)
+        (tw, th), baseline = cv2.getTextSize(label_text, font, font_scale, t)
+
+        tb_x1, tb_y1 = x1, max(0, y1 - th - baseline - 3)
+        tb_x2, tb_y2 = x1 + tw + 6, tb_y1 + th + baseline + 3
+        cv2.rectangle(img, (tb_x1, tb_y1), (tb_x2, tb_y2), color, -1)
+        cv2.putText(img, label_text, (tb_x1 + 3, tb_y2 - baseline - 2),
+                    font, font_scale, (0, 0, 0), t, cv2.LINE_AA)
+
+    # Work on a copy
+    annotated_img = img_np.copy()
+
+    for label, data in detections.items():
+        boxes = data.get("boxes", [])
+        probs = data.get("probs", [])
+        n = min(len(boxes), len(probs)) if probs else len(boxes)
+
+        for i in range(n):
+            p = probs[i] if probs and i < len(probs) else 0.0
+            if p < score_thresh:
+                continue
+            color = prob_to_color(p)
+            text = f"{label} {p:.2f}"
+            draw_box(annotated_img, boxes[i], text, color)
+
+    return annotated_img

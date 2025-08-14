@@ -281,7 +281,7 @@ class TFHandler:
     """
     A reusable class to handle TF2 transformations.
     """
-    def __init__(self, node: Node, cache_time: float = 1200.0):
+    def __init__(self, node: Node, cache_time: float = 300.0):
         """
         Initializes the TF handler.
         
@@ -291,10 +291,9 @@ class TFHandler:
         """
         self.node = node
         self._buffer = Buffer(cache_time=Duration(seconds=cache_time))
-        # print(f"\n\n{dir(self._buffer)=}")
         # The TransformListener should be spun. Setting spin_thread=True handles this automatically.
         self._listener = TransformListener(self._buffer, node, spin_thread=True)
-
+        # print(f"\n\n{dir(self._buffer)=}\n{dir(self._listener)=}")
     def lookup_transform(
         self,
         target_frame: str,

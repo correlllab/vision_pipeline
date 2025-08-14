@@ -1,7 +1,7 @@
 {
     "gemini_model": "gemini-2.5-flash-lite-preview-06-17",
     "vlm_true_positive_rate": 0.51,
-    "vlm_false_negative_rate": 0.001,
+    "vlm_false_negative_rate": 0.49,
     "gemini_max_retries": 4,
 
     "owl_min_2d_box_side": 0,
@@ -41,7 +41,7 @@
     "occlusion_tol":0.1,
     
     "test_querys": [
-        "coke can",
+        "soda can",
         "wrench",
         "drill",
         "screwdriver",

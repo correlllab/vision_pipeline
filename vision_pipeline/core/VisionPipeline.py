@@ -10,7 +10,7 @@ from open3d.visualization import gui, rendering
 from open3d.t.geometry import Metric as o3dMetrics
 from open3d.t.geometry import MetricParameters as MetricParameters
 
-
+import cv2
 """
 Cheat Imports
 """
@@ -33,7 +33,7 @@ os.makedirs(fig_dir, exist_ok=True)
 os.makedirs(os.path.join(fig_dir, "VisionPipeline"), exist_ok=True)
 
 
-from math_utils import iou_3d, in_image, is_obscured, mahalanobis_distance
+from math_utils import iou_3d, in_image, is_obscured, mahalanobis_distance, annotate_2d_candidates
 from SAM2 import SAM2_PC
 from BBBackBones import OWLv2, Gemini_BB, YOLO_WORLD
 
@@ -126,7 +126,10 @@ class VisionPipe:
     def get_candidates(self, rgb_img, depth_img, queries, I, obs_pose, debug):
         #get 2d predictions dict with lists of probabilities, boxes from OWLv2
         candidates_2d = self.BackBone.predict(rgb_img, queries, debug=debug)
-
+        if debug:
+            annotated_img = annotate_2d_candidates(rgb_img, candidates_2d)
+            cv2.imshow("2d_candidates", annotated_img)
+            cv2.waitKey(1)
         #prepare the 3d predictions dict
         candidates_3d = {}
         #Will need to transform points according to robot pose
@@ -313,7 +316,7 @@ class VisionPipe:
             argmax1, maxval1 = max(enumerate(candiates["probs"]), key=lambda pair: pair[1])
             top_candiate = candiates["pcds"][argmax1]
             return top_candiate, maxval1
-        return o3d.geometry.PointCloud(), 0.0
+        return o3d.t.geometry.PointCloud(), 0.0
 
 
 if __name__ == "__main__":
@@ -323,7 +326,7 @@ if __name__ == "__main__":
 
     vp = VisionPipe()
     
-    do_debug = False
+    do_debug = True
     def grabber_func(cam):
         data = cam.get_data()  # make sure this has a short internal timeout
         obs_pose = [0,0,0,0,0,0]

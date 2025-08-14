@@ -45,7 +45,8 @@ from VisionPipeline import VisionPipe
 from RosRealsense import RealSenseSubscriber
 from ros_utils import box_to_marker, text_marker, pcd_to_msg
 
-
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 
 class ROS_VisionPipe(VisionPipe, Node):
     def __init__(self, subscribers):
@@ -62,7 +63,7 @@ class ROS_VisionPipe(VisionPipe, Node):
         self.vis_frame = config["base_frame"]
         self.create_timer(1.0/6.0, self.publish_viz)
 
-
+        self.next_marker_id = 1
         self.qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
@@ -72,32 +73,31 @@ class ROS_VisionPipe(VisionPipe, Node):
 
         self.start_services()
     def start_services(self) -> None:
-        """
-        Advertise the two custom services and start a background spin thread.
-        Using a single MultiThreadedExecutor avoids the “node added to more
-        than one executor” error and still lets multiple callbacks run in
-        parallel.
-        """
-        # ── Advertise services ───────────────────────────────────────────────
+        # Allow timer + services to run concurrently
+        self.cbgroup = ReentrantCallbackGroup()
+
+        # Re-create services in this group (optional but good practice)
         self.update_srv = self.create_service(
-            UpdateTrackedObject,
-            'vp_update_tracked_object',
-            self.update_track_string_callback,
+            UpdateTrackedObject, 'vp_update_tracked_object',
+            self.update_track_string_callback, callback_group=self.cbgroup
         )
         self.query_srv = self.create_service(
-            Query,
-            'vp_query_tracked_objects',
-            self.query_tracked_objects_callback,
+            Query, 'vp_query_tracked_objects',
+            self.query_tracked_objects_callback, callback_group=self.cbgroup
         )
 
-        # ── Executor in its own thread ───────────────────────────────────────
-        self._executor = rclpy.executors.MultiThreadedExecutor()
+        # Use this node's context and add *all* nodes that need spinning
+        self._executor = MultiThreadedExecutor(context=self.context)
         self._executor.add_node(self)
+        for sub in self.subscribers:
+            # Only if RealSenseSubscriber is a Node
+            try:
+                self._executor.add_node(sub)
+            except Exception:
+                pass  # if it's not a Node, ignore
 
         self._spin_thread = threading.Thread(
-            target=self._executor.spin,
-            daemon=True,
-            name='ros_vision_pipe_spin',
+            target=self._executor.spin, daemon=True, name='ros_vision_pipe_spin'
         )
         self._spin_thread.start()
 
@@ -134,6 +134,7 @@ class ROS_VisionPipe(VisionPipe, Node):
                 return response
 
             top_pcd, prob = self.query(request.query)
+            print(f"pcd_to_msg query_tracked_objects_callback {type(top_pcd)=}")
             response.cloud = pcd_to_msg(top_pcd, self.vis_frame)
             response.prob = prob
             response.result = True
@@ -178,6 +179,7 @@ class ROS_VisionPipe(VisionPipe, Node):
                 return False
     def publish_viz(self):
         with self._lock:
+            self.next_marker_id = 1
             for query in self.tracked_objects:
                 candidate_set = None
                 top_candidate_set = {"probs":[], "boxes":[], "pcds":[] }
@@ -193,8 +195,21 @@ class ROS_VisionPipe(VisionPipe, Node):
                 pcd = self.get_pointcloud(top_candidate_set)
                 if pcd is None or len(pcd.point["positions"]) == 0:
                     continue
+                # print(f"pcd_to_msg publish vis {type(pcd)=}")
                 pc_msg = pcd_to_msg(pcd, self.vis_frame)
                 self.pc_publishers[query].publish(pc_msg)
+
+
+                clear_arr = MarkerArray()
+
+                clear_marker = Marker()
+                clear_marker.action = Marker.DELETEALL
+                # (Optional, but avoids RViz warnings)
+                clear_marker.header.stamp = self.get_clock().now().to_msg()
+                clear_marker.header.frame_id = config["base_frame"]
+
+                clear_arr.markers.append(clear_marker)
+                self.marker_publishers[query].publish(clear_arr)
 
                 marker_msg = self.get_marker_msg(top_candidate_set, query)
                 self.marker_publishers[query].publish(marker_msg)
@@ -209,12 +224,12 @@ class ROS_VisionPipe(VisionPipe, Node):
             if pcd_acc is None:
                 pcd_acc = p
             else:
-                pcd_acc.append(p)
+                pcd_acc = pcd_acc.append(p)
         return pcd_acc
 
     def get_marker_msg(self, candidate_set, query):
         marker_array = MarkerArray()
-        id = 0
+        
         for box, prob in zip(candidate_set["boxes"], candidate_set["probs"]):
             #print(f"Processing box for query: {query}, score: {score}")
             #input(f"{box=}, {score=}")
@@ -223,13 +238,16 @@ class ROS_VisionPipe(VisionPipe, Node):
             
             #print(type(r), type(g))
             #input(f"{r=}, {g=}")
-            box_marker = box_to_marker(box.to_legacy(), [r, g, 0.0, 0.5], self.vis_frame, id)
+            box_marker = box_to_marker(box.to_legacy(), [r, g, 0.0, 0.5], self.vis_frame, self.next_marker_id)
             marker_array.markers.append(box_marker)
+            self.next_marker_id += 1
 
             prob_marker = text_marker(f"{query.replace(' ', '')}:{prob:.2f}",
                                        box.get_center().numpy().tolist(),
-                                        [r, g, 0.0, 0.5], self.vis_frame, id)
+                                        [r, g, 0.0, 0.5], self.vis_frame, self.next_marker_id)
             marker_array.markers.append(prob_marker)
+            self.next_marker_id += 1
+
         return marker_array
 
     def update(self, debug=False):

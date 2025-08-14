@@ -7,3 +7,4 @@ API_KEYS.py
 EV_components/
 Roboflow_Components/
 output.prof
+*.log
