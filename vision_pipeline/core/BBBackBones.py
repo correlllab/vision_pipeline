@@ -337,49 +337,62 @@ class OWLv2:
         return self.__str__()
 
 class YOLO_WORLD:
-    def __init__(self, checkpoint_file="YoloWorldL.pth", config_path=None):
+    def __init__(self, checkpoint_file="YoloWorldL.pth", config_path=None, config=None):
         """
         Initializes the YOLO World model.
         """
         self.model = YOLOWorld('yolov8x-worldv2.pt')
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.model.to(device)
-        #print(f"YOLO World model loaded on {self.model.device}")
-        #print(f"{dir(self.model)=}")
+
+        # pull the threshold from config (default to 0.0 if missing)
+        config = config or {}
+        self.vlm_tpr = float(config.get("vlm_true_positive_rate", 0.0))
 
     def predict(self, img, queries, debug):
         """
         Parameters:
         - img: image to produce bounding boxes in
-        - queries: list of strings whos bounding boxes we want
+        - queries: list of strings whose bounding boxes we want
         - debug: if True, prints debug information
         Returns:
-        - candidates_2d: dictionary containing a list of bounding boxes and a list of probabilities for each query
+        - candidates_2d: dict mapping each query to {"boxes": [...], "probs": [...]}
         """
         self.model.set_classes(queries)
         results = self.model.predict(img, show=False, verbose=debug)[0]
         if debug:
             print(f"[YOLO_WORLD predict]{dir(results.boxes)=}")
-        boxes = results.boxes.xyxy       # shape (N, 4)
-        probs = results.boxes.conf      # shape (N,)
-        cls_ids= results.boxes.cls.long()  # shape (N,)
+
+        boxes   = results.boxes.xyxy            # (N, 4)
+        probs   = results.boxes.conf            # (N,)
+        cls_ids = results.boxes.cls.long()      # (N,)
+
+        # clamp probabilities so each is at least vlm_tpr
+        if isinstance(probs, torch.Tensor):
+            tpr_tensor = torch.tensor(self.vlm_tpr, device=probs.device, dtype=probs.dtype)
+            probs = torch.maximum(probs, tpr_tensor)
+        else:
+            # fallback, though ultralytics returns tensors
+            probs = [max(float(p), self.vlm_tpr) for p in probs]
+
         candidates_2d = {}
         for idx, query in enumerate(queries):
-            # mask for detections of this class
             mask = cls_ids == idx
 
-            # convert to Python lists / tensors
-            selected_boxes  = boxes[mask].tolist()          # list of [x1,y1,x2,y2]
-            selected_probs = probs[mask].tolist()                  # tensor of shape (K,)
+            selected_boxes = boxes[mask].tolist()  # list of [x1,y1,x2,y2]
+            # apply mask after the clamp
+            selected_probs = probs[mask].tolist() if isinstance(probs, torch.Tensor) \
+                             else [max(float(p), self.vlm_tpr) for p in probs][mask]
 
             candidates_2d[query] = {
-                "boxes":  selected_boxes,
+                "boxes": selected_boxes,
                 "probs": selected_probs
             }
             if debug:
-                print(f"[YOLO_WORLD predict] {query=} probs:{len(candidates_2d[query]['probs'])=} boxes:{len(candidates_2d[query]['boxes'])=}")
-        
+                print(f"[YOLO_WORLD predict] {query=} probs:{len(selected_probs)=} boxes:{len(selected_boxes)=}")
+
         return candidates_2d
+    
 if __name__ == "__main__":
     from realsense_devices import RealSenseCamera
     camera = RealSenseCamera()

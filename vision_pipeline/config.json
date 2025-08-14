@@ -1,7 +1,7 @@
 {
     "gemini_model": "gemini-2.5-flash-lite-preview-06-17",
     "vlm_true_positive_rate": 0.51,
-    "vlm_false_negative_rate": 0.49,
+    "vlm_false_negative_rate": 0.25,
     "gemini_max_retries": 4,
 
     "owl_min_2d_box_side": 0,
@@ -9,14 +9,14 @@
     "owlv2_discard_percentile": 0.75,
     "owlv2_sigmoid_gain": 1,
 
-    "backbone": "yoloworld",
+    "backbone": "gemini",
 
     "sam2_model": "facebook/sam2-hiera-large",
 
 
     "min_3d_points": 20,
     "voxel_size": 0.001,
-    "pose_expire_time": 0.1,
+    "pose_expire_time": 1,
     "change_in_pose_threshold": 0.1,
     "vis_k": 10,
 
@@ -28,7 +28,7 @@
     "radius_radius": 0.01,
     "radius_nb_points": 50,
     
-    "remove_belief_threshold": 0.25,
+    "remove_belief_threshold": 0.05,
     "candidate_match_method": "mahalanobis",
     "iou3d_match_threshold": 0.2,
     "chamfer_match_threshold": 0.02,
@@ -56,5 +56,5 @@
     ],
     "camera_min_range_m": 0.3,
     "camera_max_range_m": 3.0,
-    "base_frame": "map"
+    "base_frame": "pelvis"
 }
