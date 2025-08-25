@@ -4,7 +4,7 @@ figures/
 API_KEYS.py
 *.pth
 *.pt
-EV_components/
-Roboflow_Components/
+FastenerDataset/
 output.prof
 *.log
+runs/

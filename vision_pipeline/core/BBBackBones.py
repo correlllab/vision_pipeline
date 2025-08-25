@@ -337,7 +337,7 @@ class OWLv2:
         return self.__str__()
 
 class YOLO_WORLD:
-    def __init__(self, checkpoint_file="YoloWorldL.pth", config_path=None, config=None):
+    def __init__(self, checkpoint_file="YoloWorldL.pth", config_path=None):
         """
         Initializes the YOLO World model.
         """
@@ -345,9 +345,7 @@ class YOLO_WORLD:
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.model.to(device)
 
-        # pull the threshold from config (default to 0.0 if missing)
-        config = config or {}
-        self.vlm_tpr = float(config.get("vlm_true_positive_rate", 0.0))
+        self.vlm_tpr = config["vlm_true_positive_rate"]
 
     def predict(self, img, queries, debug):
         """

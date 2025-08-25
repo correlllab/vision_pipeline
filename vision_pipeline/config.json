@@ -9,7 +9,7 @@
     "owlv2_discard_percentile": 0.75,
     "owlv2_sigmoid_gain": 1,
 
-    "backbone": "gemini",
+    "backbone": "yoloworld",
 
     "sam2_model": "facebook/sam2-hiera-large",
 

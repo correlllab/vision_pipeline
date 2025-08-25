@@ -123,7 +123,7 @@ class ROS_VisionPipe(VisionPipe, Node):
         return response
 
     def query_tracked_objects_callback(self, request, response):
-        #print(f"Querying tracked objects for: {request.query}")
+        print(f"Querying tracked objects for: {request.query}")
         with self._lock:
             print("Acquired lock for querying tracked objects.")
             print(f"{request.query=} {request.query not in self.tracked_objects=}")
@@ -253,6 +253,7 @@ class ROS_VisionPipe(VisionPipe, Node):
     def update(self, debug=False):
         update_success = []
         for sub in self.subscribers:
+            time.sleep(1) if debug else None
             rgb_img, depth_img, info, pose = sub.get_data()
             success = True
             msg_components = []
@@ -360,28 +361,30 @@ def TestExampleClient(args=None):
     ec = ExampleClient()
     try:
         while rclpy.ok():
-            action = int(input("Enter an integer for the action (1: add, 2: remove, 3: query): "))
-            if action not in [1, 2, 3]:
-                print("Invalid action. Please enter 1, 2, or 3")
+            i = input("two words, the action, add, remove, or query (a, r, q): followed by string: ").split()
+            print(f"{i=}")
+            action = i[0]
+            track_string = " ".join(i[1:])
+            print(f"{action=}, {track_string=}")
+            if action not in ["add", "remove", "query", "a", "r", "q"]:
+                print("Invalid action. Please enter add, remove, or query")
                 continue
-            if action == 1:
-                track_string = input("Enter the track string to add: ")
+            if action == "a" or action == "add":
                 ats_out = ec.add_track_string(track_string)
                 print(f"add_track_string response: {ats_out}\n")
-            elif action == 2:
-                track_string = input("Enter the track string to remove: ")
+            elif action == "r" or action == "remove":
                 dts_out = ec.remove_track_string(track_string)
                 print(f"remove_track_string response: {dts_out}\n")
-            elif action == 3:
-                track_string = input("Enter the track string to query: ")
+            elif action == "q" or action == "query":
                 print(f"Querying tracked objects for '{track_string}'...")
                 q_out = ec.query_tracked_objects(track_string)
                 print(f"query_tracked_objects response: {q_out.message}\n")
             time.sleep(1)
 
-    except KeyboardInterrupt:
-        print("Shutting down...")
+    except Exception as e:
+        print(f"An error occurred: {e}")
     finally:
+        print("Shutting down...")
         ec.destroy_node()
         rclpy.shutdown()
         return 0
