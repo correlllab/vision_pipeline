@@ -5,90 +5,96 @@ import numpy as np
 
 ORIGINAL_DATASET = "./FastenerDataset"
 base_model = "yolov8s-worldv2.pt"
-NUM_FOLDS = 5
-EPOCHS=1
+NUM_FOLDS = 2
+EPOCHS=512
 PATIENCE=25
-IMG_WIDTH = int(np.ceil(640/32)*32)  # must be multiple of 32
+IMG_WIDTH = int(np.ceil(1920/32)*32)  # must be multiple of 32
 STARTING_LR = 1e-3
 ENDING_LR = 1e-5
 OPTIMIZER = "AdamW"
 BATCH_SIZE = 4
 
-from ultralytics.utils.metrics import bbox_iou
-from ultralytics.cfg import get_cfg, check_cfg, cfg2dict # <-- Import the official config builder
-
-from ultralytics.data.utils import check_det_dataset
-from ultralytics.data import build_yolo_dataset
-from ultralytics.utils.ops import xywhn2xyxy
 import torch
-def get_average_iou(model, data_yaml_path: str, split: str = 'test', conf_threshold: float = 0.25):
-    """
-    Calculates the average IoU for all predicted boxes across a dataset.
-    """
-    # 1. Create a complete configuration object.
-    print(f"\n\n\n{model=}")
-    print(f"{dir(model)=}")
-    print(f"{type(model.cfg)=}\n\n\n")
+from ultralytics.data.build import build_dataloader, build_yolo_dataset
+from ultralytics.data.utils import check_det_dataset
+from ultralytics.cfg import get_cfg, cfg2dict, check_cfg
+from torchvision.ops import box_iou
+from ultralytics.utils.ops import xywhn2xyxy
 
-    cfg = model.cfg
-    check_cfg(cfg2dict(cfg))
-    # 2. Set up the data loader.
-    data_info = check_det_dataset(data_yaml_path)
-    dataset = build_yolo_dataset(
-        cfg=cfg,
-        batch=BATCH_SIZE, # Make sure BATCH_SIZE is defined in your script
-        data=data_info,
-        img_path=data_info[split],
-        mode=split
-    )
 
-    all_max_ious = []
-    device = model.device
 
-    print(f"Calculating average IoU for '{split}' split...")
-    # 3. Iterate through each BATCH of data.
-    for batch in dataset:
-        imgs = batch['img'].to(device).float() / 255.0
-        
-        # This call is efficient as it predicts on the whole batch at once.
-        preds = model.predict(imgs, conf=conf_threshold, verbose=False)
+def get_average_IOU(test_model, data_yaml, project_dir, model_name, run_dir):
+    data_info = check_det_dataset(data_yaml)
+    img_path = data_info["test"]
+    cfg = get_cfg(overrides={
+        "task":"detect",
+        "mode":"predict",
+        "data":data_yaml,
+        "batch":BATCH_SIZE,
+        "imgsz":IMG_WIDTH,
+        "device":"cuda:0" if torch.cuda.is_available() else "cpu",
+        "rect":True,
+        "split": "test",
+        "project": project_dir,
+        "name": model_name +"_iou"
+    })
+    cfg_dict = cfg2dict(cfg)
+    check_cfg(cfg_dict)
+    dataset = build_yolo_dataset(cfg, img_path, BATCH_SIZE, data_info)
+    data_loader = build_dataloader(dataset, batch=BATCH_SIZE, workers=8)
+    # print("\n\n\n")
+    N = 0
+    iou_acc = 0.0
+    for batch in data_loader: 
+        # print(f"{type(batch)=}")
+        # print(f"{dir(batch)=}")
+        # print(batch.keys())
+        images = batch['img'].to(cfg.device)
+        images = images.float() / 255.0
 
-        # 4. FIX: Add an inner loop to process each image result WITHIN the batch.
-        for i, result in enumerate(preds):
-            # Get predictions for the i-th image in the batch.
-            pred_boxes_xyxyn = result.boxes.xyxyn.to(device)
+        results = test_model(images)
+        # print(f"{type(results)=}")
+        # print(f"{dir(results)=}")
+        # print(f"{len(results)=}")
+        # print(f"{type(results[0])=}")
+        # print(f"{dir(results[0])=}")
 
-            # Get ground truth boxes for the corresponding i-th image.
-            gt_indices = batch['batch_idx'] == i
-            gt_bboxes_for_image = batch['bboxes'][gt_indices]
 
-            # Skip if there are no predictions or no ground truths for THIS image.
-            if pred_boxes_xyxyn.shape[0] == 0 or gt_bboxes_for_image.shape[0] == 0:
+        for i in range(len(images)):
+            pred_boxes = results[i].boxes.xyxy
+            gt_boxes = batch["bboxes"][i].to(cfg.device)
+            if gt_boxes.ndim == 1:
+                gt_boxes = gt_boxes.unsqueeze(0)
+            # print(f"{type(pred_boxes)=}")
+            # # print(f"{dir(pred_boxes)=}")
+            # print(f"{pred_boxes.shape=}")
+            # print(f"{type(gt_boxes)=}")
+            # # print(f"{dir(gt_boxes)=}")
+            # print(f"{gt_boxes.shape=}")
+
+            if gt_boxes.numel() == 0:
                 continue
-
-            gt_bboxes_xyxyn = xywhn2xyxy(gt_bboxes_for_image).to(device)
-            iou_matrix = bbox_iou(pred_boxes_xyxyn, gt_bboxes_xyxyn, xywh=False)
-
-            if iou_matrix.numel() == 0:
+            if pred_boxes.numel() == 0:
+                N += gt_boxes.shape[0]
                 continue
-            
-            # Find the best IoU for each predicted box and add to the master list.
-            max_ious_for_image, _ = torch.max(iou_matrix, dim=1)
-            all_max_ious.extend(max_ious_for_image.cpu().tolist())
+            h, w = images.shape[2], images.shape[3]
+            gt_boxes = xywhn2xyxy(gt_boxes, w=w, h=h)
+            iou_mat = box_iou(pred_boxes, gt_boxes)
+            # print(f"{type(iou_mat)=}")
+            # print(f"{dir(iou_mat)=}")
+            # print(f"{iou_mat.shape=}")
+            # print(iou_mat)
+            max_iou, _ = iou_mat.max(dim=0)
+            iou_acc += max_iou.sum().item()
+            N += max_iou.shape[0]
+    avg_iou = iou_acc / N if N > 0 else 0.0
+    return avg_iou
 
-    # 5. Calculate the final average IoU.
-    if not all_max_ious:
-        print("Warning: No valid predictions found to calculate average IoU.")
-        return 0.0
-
-    average_iou = np.mean(all_max_ious)
-    print(f"Finished. Found {len(all_max_ious)} predicted boxes.")
-    return average_iou
 
 def get_metrics(run_dir, data_yaml, project_dir, model_name):
     best_weights = os.path.join(run_dir, "weights", "best.pt")
     test_model = YOLOWorld(best_weights)
-    average_iou = get_average_iou(test_model, data_yaml, split="test", conf_threshold=0.001)
+    avg_iou = get_average_IOU(test_model, data_yaml, project_dir, model_name, run_dir)
     test_metrics = test_model.val(
             data=data_yaml,
             split="test",
@@ -105,22 +111,20 @@ def get_metrics(run_dir, data_yaml, project_dir, model_name):
             project=project_dir,
             name=f"{model_name}_test",
         )
-
     metric_dict = {
-        "average_iou": average_iou,
+        "avg_iou": avg_iou,
         "mp":   test_metrics.box.mp,       # mean precision
         "mr":   test_metrics.box.mr,       # mean recall
         "map":  test_metrics.box.map,      # mAP@0.50:0.95
         "map50":test_metrics.box.map50,    # mAP@0.50
         "map75":test_metrics.box.map75     # mAP@0.75
     }
+    # print("\n\n")
     # print(test_metrics)
-    print("\n\n")
-    print(f"{type(test_metrics)=}")
-    print(f"{dir(test_metrics)=}")
-    print(f"{dir(test_metrics.box)=}")
-
-    input("Press Enter to continue...")
+    # print(f"{type(test_metrics)=}")
+    # print(f"{dir(test_metrics)=}")
+    # print(f"{type(test_metrics.box)=}")
+    # print(f"{dir(test_metrics.box)=}")
     return metric_dict
 
 def train_model(model, epochs, data_yaml_path, project_dir, model_name):
@@ -189,6 +193,7 @@ def main(num_folds, epochs, experiment_str):
 
     fold_summary = {
         "folds_count": len(fold_rows),
+        "iou": _avg("avg_iou"),
         "avg_mp":   _avg("mp"),
         "avg_mr":   _avg("mr"),
         "avg_map":  _avg("map"),
