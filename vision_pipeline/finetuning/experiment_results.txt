@@ -1,0 +1,19 @@
+===== Experiments =====
+
+
+
+
+=============Experiment exclude_classes=Bolts__Screw_Hole__camera=None__testcam=head==========
+Experiment: exclude_classes=Bolts__Screw_Hole__camera=None__testcam=head
+Fold Summary: {'folds_count': 5, 'iou': 0.8032512958875577, 'avg_mp': 0.8015784865986129, 'avg_mr': 0.7696397752486207, 'avg_map': 0.5877274953665681, 'avg_map50': 0.8044561144243858, 'avg_map75': 0.6724510240808}
+Final Model Metrics: {'avg_iou': 0.7647477019578218, 'mp': 0.7730745196318677, 'mr': 0.7309206000219145, 'map': 0.5298251946527088, 'map50': 0.7598543896599502, 'map75': 0.6345362331503016}
+
+
+
+
+
+=============Experiment exclude_classes=Bolts__Screw_Hole__camera=None__testcam=hand==========
+Experiment: exclude_classes=Bolts__Screw_Hole__camera=None__testcam=hand
+Fold Summary: {'folds_count': 5, 'iou': 0.8032512958875577, 'avg_mp': 0.8015784865986129, 'avg_mr': 0.7696397752486207, 'avg_map': 0.5877274953665681, 'avg_map50': 0.8044561144243858, 'avg_map75': 0.6724510240808}
+Final Model Metrics: {'avg_iou': 0.8929800740603743, 'mp': 0.9005774139550735, 'mr': 0.8939393939393939, 'map': 0.7763317380270103, 'map50': 0.9259716350126524, 'map75': 0.8845796344605475}
+
