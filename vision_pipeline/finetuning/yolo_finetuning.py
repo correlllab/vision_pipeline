@@ -26,8 +26,8 @@ base_model = "yolov8l-worldv2.pt"
 
 
 EPOCHS=1024
-PATIENCE=100
-IMG_WIDTH = int(np.ceil(1920/32)*32)  # must be multiple of 32
+PATIENCE=25
+IMG_WIDTH = int(np.ceil(1280/32)*32)  # must be multiple of 32
 STARTING_LR = 1e-3
 ENDING_LR = 1e-5
 OPTIMIZER = "AdamW"
