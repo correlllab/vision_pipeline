@@ -1,7 +1,7 @@
 import os
 os.environ['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True'
 
-from ultralytics import YOLOWorld
+from ultralytics import YOLOWorld, YOLO, RTDETR
 import shutil
 import numpy as np
 import matplotlib.pyplot as plt
@@ -21,17 +21,30 @@ import os
 ORIGINAL_DATASET = "./FastenerDataset"
 # base_model = "yolov8s-worldv2.pt"
 # base_model = "yolov8m-worldv2.pt"
-base_model = "yolov8l-worldv2.pt"
+# base_model = "yolov8l-worldv2.pt"
 # base_model = "yolov8x-worldv2.pt"
+# model_constructor = lambda arg: YOLOWorld(arg)
+
+
+# base_model = "yolo11l-obb.pt"
+# base_model = "yolov8x.pt"
+# model_constructor = lambda arg: YOLO(arg)
+
+# base_model = "rtdetr-l.pt"
+# base_model = "rtdetr-x.pt"
+# model_constructor = lambda arg: RTDETR(arg)
+
+base_model = None
+model_constructor = None
 
 
 EPOCHS=1024
-PATIENCE=25
-IMG_WIDTH = int(np.ceil(1280/32)*32)  # must be multiple of 32
+PATIENCE=100
+IMG_WIDTH = int(np.ceil(1920/32)*32)  # must be multiple of 32
 STARTING_LR = 1e-3
 ENDING_LR = 1e-5
 OPTIMIZER = "AdamW"
-BATCH_SIZE = 4
+BATCH_SIZE = 1
 DEBUG = False
 
 
@@ -86,6 +99,11 @@ base_train_cfg = {
     "hsv_h":0.015,     # (Magnitude) Image HSV-Hue augmentation
     "hsv_s":0.7,       # (Magnitude) Image HSV-Saturation augmentation
     "hsv_v":0.4,       # (Magnitude) Image HSV-Value augmentation
+
+    #loss fn
+    "box":15,
+    "cls":0.5,
+    "dfl":1.5,
 }
 
 def visualize_and_save_iou(image_tensor, gt_boxes, pred_boxes, save_path, show=False):
@@ -107,14 +125,14 @@ def visualize_and_save_iou(image_tensor, gt_boxes, pred_boxes, save_path, show=F
     if gt_boxes is not None and gt_boxes.numel() > 0:
         for (x1, y1, x2, y2) in gt_boxes.cpu().numpy():
             rect = patches.Rectangle((x1, y1), x2-x1, y2-y1,
-                                     linewidth=2, edgecolor='g', facecolor='none')
+                                     linewidth=1, edgecolor='g', facecolor='none')
             ax.add_patch(rect)
 
     # Pred boxes (red)
     if pred_boxes is not None and pred_boxes.numel() > 0:
         for (x1, y1, x2, y2) in pred_boxes.cpu().numpy():
             rect = patches.Rectangle((x1, y1), x2-x1, y2-y1,
-                                     linewidth=2, edgecolor='r', facecolor='none')
+                                     linewidth=1, edgecolor='r', facecolor='none')
             ax.add_patch(rect)
 
     ax.axis("off")
@@ -131,8 +149,8 @@ def get_average_IOU(
     project_dir: str,
     model_name: str,
     use_hungarian: bool = True,  # Use Hungarian algorithm for matching
-    conf_threshold: float = 0.25,  # Lower confidence threshold
-    iou_threshold: float = 0.25,    # Lower NMS threshold
+    conf_threshold: float = 0.30,  # Lower confidence threshold
+    iou_threshold: float = 0.50,    # Lower NMS threshold
 ):
     """
     Improved IoU computation with better handling of edge cases
@@ -257,43 +275,29 @@ def get_average_IOU(
                 save_path = os.path.join(project_dir, f"{model_name}_iou_vis", f"batch{batch_idx}_img{i}.png")
                 visualize_and_save_iou(images[i], gt_boxes, pred_boxes, save_path, show=DEBUG)
 
-                # Compute IoU with improved matching
-                try:
-                   
-                    # Geometric IoU (class-agnostic)
-                    iou_mat = box_iou(pred_boxes, gt_boxes)
-                    
-                    if use_hungarian and iou_mat.numel() > 0:
-                        try:
-                            cost = (1.0 - iou_mat).detach().cpu().numpy()
-                            r, c = linear_sum_assignment(cost)
+                
+                
+                # Geometric IoU (class-agnostic)
+                iou_mat = box_iou(pred_boxes, gt_boxes)
+                
+                if use_hungarian:
+                    cost = (1.0 - iou_mat).detach().cpu().numpy()
+                    r, c = linear_sum_assignment(cost)
 
-                            # clamp to valid range (paranoia)
-                            r = r[r < iou_mat.shape[0]]
-                            c = c[c < iou_mat.shape[1]]
+                    # clamp to valid range (paranoia)
+                    r = r[r < iou_mat.shape[0]]
+                    c = c[c < iou_mat.shape[1]]
 
-                            # sum matched IoUs (0 if nothing matched)
-                            if len(r) and len(c):
-                                pair_ious = iou_mat[r, c]
-                                iou_acc += pair_ious.sum().item()
-                            # denominator must count ALL GT boxes (matched or not)
-                            N += gt_boxes.shape[0]
-                        except Exception:
-                            # fallback: best IoU per GT (class-agnostic)
-                            max_iou = iou_mat.max(dim=0).values  # over preds, for each GT
-                            iou_acc += max_iou.sum().item()
-                            N += gt_boxes.shape[0]
-                    else:
-                        # no Hungarian: best IoU per GT
-                        max_iou = iou_mat.max(dim=0).values
-                        iou_acc += max_iou.sum().item()
-                        N += gt_boxes.shape[0]
-                            
-                except Exception as e:
-                    if DEBUG:
-                        print(f"Error computing IoU for image {i}: {e}")
-                    N += gt_boxes.shape[0]  # Count GT boxes as unmatched
-                    continue
+                
+                    pair_ious = iou_mat[r, c]
+                    iou_acc += pair_ious.sum().item()
+                    # denominator must count ALL GT boxes (matched or not)
+                    N += len(pair_ious)
+                else:
+                    # no Hungarian: best IoU per GT
+                    max_iou = iou_mat.max(dim=0).values
+                    iou_acc += max_iou.sum().item()
+                    N += gt_boxes.shape[0]
 
             if DEBUG and batch_idx >= 2:
                 break
@@ -312,12 +316,13 @@ def get_average_IOU(
     return avg_iou
 def get_metrics(run_dir, data_yaml, project_dir, model_name):
     best_weights = os.path.join(run_dir, "weights", "best.pt")
-    test_model = YOLOWorld(best_weights).to(base_test_cfg["device"])
+    test_model = model_constructor(best_weights).to(base_test_cfg["device"])
     avg_iou = get_average_IOU(test_model, data_yaml, project_dir, model_name, use_hungarian=False)
     hungarian_iou = get_average_IOU(test_model, data_yaml, project_dir, model_name, use_hungarian=True)
     test_cfg = base_test_cfg.copy()
     test_cfg["data"] = data_yaml
     test_cfg["project"] = project_dir
+    data_yaml.split("/")[-1].split(".")[0]
     test_cfg["name"] = model_name + "_val"
     
     test_metrics = test_model.val(**test_cfg)
@@ -357,7 +362,7 @@ def main(experiment_str):
     project_dir = os.path.join("runs", experiment_str)
 
     model_name = f"PlannedModel"
-    planned_model = YOLOWorld(base_model).to(base_train_cfg["device"])
+    planned_model = model_constructor(base_model).to(base_train_cfg["device"])
     all_data_yaml = os.path.join(ORIGINAL_DATASET, "planned_dataset", "data_all.yaml")
     hand_data_yaml = os.path.join(ORIGINAL_DATASET, "planned_dataset", "data_hand.yaml")
     head_data_yaml = os.path.join(ORIGINAL_DATASET, "planned_dataset", "data_head.yaml")
@@ -371,8 +376,9 @@ def main(experiment_str):
     run_dir = os.path.join(project_dir, model_name)
 
     all_data_metric = get_metrics(run_dir, all_data_yaml, project_dir, model_name)
-    hand_data_metric = get_metrics(run_dir, hand_data_yaml, project_dir, model_name)
     head_data_metric = get_metrics(run_dir, head_data_yaml, project_dir, model_name)
+    hand_data_metric = get_metrics(run_dir, hand_data_yaml, project_dir, model_name)
+
 
     
 
@@ -382,31 +388,39 @@ if __name__ == "__main__":
     import SplitGeneration
     exclude_classes_sets = [["Bolt", "Screw Hole", "InteriorScrew"]]
     out_file = "./experiment_results.txt"
-    # with open(out_file, "w") as f:
-    #     f.write("===== Experiments =====\n")
-    min_screen_percentages = [((32*32)/(1920*1080))*0.25]
-    for min_screen_percentage in min_screen_percentages:
-        for exclude_classes in exclude_classes_sets:
-            SplitGeneration.create_dataset(ORIGINAL_DATASET, exclude_classes, min_screen_percentage)
-            
-            experiment_results = {}
-            experiment_str = f"BaseModel_{base_model}_Epochs_{EPOCHS}_BatchSize_{BATCH_SIZE}_ImgWidth_{IMG_WIDTH}_StartLR_{STARTING_LR}_EndLR_{ENDING_LR}_Optimizer_{OPTIMIZER}_ExcludeClasses_{exclude_classes}_MinScreenPerc_{min_screen_percentage}"
-            experiment_str = experiment_str.replace(" ", "_").replace(",", "_").replace("[", "").replace("]", "").replace("'", "").replace('"','')
-            print(f"\n\n\n\n=============Experiment {experiment_str} started.==========")
-            print(f"Running {experiment_str}")
-            hand_metrics, head_metrics, all_metrics = main(experiment_str=experiment_str)
-            torch.cuda.empty_cache()
-            torch.cuda.ipc_collect()  # Additional cleanup
-            torch.cuda.synchronize()  # Add this line
-            gc.collect()   # Add this line
-            print(f"{hand_metrics=}")
-            print(f"{head_metrics=}")
-            print(f"{all_metrics=}")
+    with open(out_file, "w") as f:
+        f.write("===== Experiments =====\n")
+    min_screen_percentages = [0.0, ((32*32)/(1920*1080))*0.25]
+    RTDETR_constructor = lambda arg: RTDETR(arg)
+    YOLO_constructer = lambda arg: YOLO(arg)
+    WORLD_constructor = lambda arg: YOLOWorld(arg)
 
-            experiment_results[experiment_str] = {"hand_metrics": hand_metrics, "head_metrics": head_metrics, "all_metrics": all_metrics}
-            print(f"=============Experiment {experiment_str} completed.==========\n\n\n\n")
-            with open(out_file, "a") as f:
-                f.write(f"\n\n\n\n=============Experiment {experiment_str}==========\n")
-                f.write(f"{hand_metrics=}\n")
-                f.write(f"{head_metrics=}\n")
-                f.write(f"{all_metrics=}\n")
+    models_to_try = [("yolov8x-worldv2.pt", WORLD_constructor), ("rtdetr-l.pt", RTDETR_constructor), ("yolov8x.pt", YOLO_constructer), ("yolo11l-obb.pt", YOLO_constructer)]
+    for model_name, constructor in models_to_try:
+        base_model = model_name
+        model_constructor = constructor
+        for min_screen_percentage in min_screen_percentages:
+            for exclude_classes in exclude_classes_sets:
+                SplitGeneration.create_dataset(ORIGINAL_DATASET, exclude_classes, min_screen_percentage)
+                
+                experiment_results = {}
+                experiment_str = f"BaseModel_{base_model}_Epochs_{EPOCHS}_BatchSize_{BATCH_SIZE}_ImgWidth_{IMG_WIDTH}_StartLR_{STARTING_LR}_EndLR_{ENDING_LR}_Optimizer_{OPTIMIZER}_ExcludeClasses_{exclude_classes}_MinScreenPerc_{min_screen_percentage}"
+                experiment_str = experiment_str.replace(" ", "_").replace(",", "_").replace("[", "").replace("]", "").replace("'", "").replace('"','')
+                print(f"\n\n\n\n=============Experiment {experiment_str} started.==========")
+                print(f"Running {experiment_str}")
+                hand_metrics, head_metrics, all_metrics = main(experiment_str=experiment_str)
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()  # Additional cleanup
+                torch.cuda.synchronize()  # Add this line
+                gc.collect()   # Add this line
+                print(f"{hand_metrics=}")
+                print(f"{head_metrics=}")
+                print(f"{all_metrics=}")
+
+                experiment_results[experiment_str] = {"hand_metrics": hand_metrics, "head_metrics": head_metrics, "all_metrics": all_metrics}
+                print(f"=============Experiment {experiment_str} completed.==========\n\n\n\n")
+                with open(out_file, "a") as f:
+                    f.write(f"\n\n\n\n=============Experiment {experiment_str}==========\n")
+                    f.write(f"{hand_metrics=}\n")
+                    f.write(f"{head_metrics=}\n")
+                    f.write(f"{all_metrics=}\n")
