@@ -1,0 +1,33 @@
+===== Experiments =====
+
+
+
+
+=============Experiment BaseModel_yolov8x-worldv2.pt_Epochs_1024_BatchSize_1_ImgWidth_1920_StartLR_0.001_EndLR_0.0001_Optimizer_AdamW_ExcludeClasses_Bolt__Screw_Hole__InteriorScrew_MinScreenPerc_0.0==========
+hand_metrics={'avg_iou': 0.6004717694778069, 'hungarian_iou': 0.8151168411686307, 'mp': np.float64(0.7443457422815072), 'mr': np.float64(0.7511797209002178), 'map': np.float64(0.5468324960680648), 'map50': np.float64(0.7250615532178436), 'map75': np.float64(0.6005206920723458)}
+head_metrics={'avg_iou': 0.5577418498460065, 'hungarian_iou': 0.7289941563965783, 'mp': np.float64(0.8608352775028096), 'mr': np.float64(0.7463987709483655), 'map': np.float64(0.5167537738683923), 'map50': np.float64(0.7854464026748094), 'map75': np.float64(0.5724372215005069)}
+all_metrics={'avg_iou': 0.5902616837750311, 'hungarian_iou': 0.7468644611182667, 'mp': np.float64(0.8339421595135779), 'mr': np.float64(0.7395068772632507), 'map': np.float64(0.5208231604780023), 'map50': np.float64(0.7679910403936863), 'map75': np.float64(0.5716142968551465)}
+
+
+
+
+=============Experiment BaseModel_yolov8x-worldv2.pt_Epochs_1024_BatchSize_1_ImgWidth_1920_StartLR_0.001_EndLR_0.0001_Optimizer_AdamW_ExcludeClasses_Bolt__Screw_Hole__InteriorScrew_MinScreenPerc_0.0001234567901234568==========
+hand_metrics={'avg_iou': 0.5239342503380358, 'hungarian_iou': 0.7904519308572528, 'mp': np.float64(0.815097570068076), 'mr': np.float64(0.7418235940492669), 'map': np.float64(0.5635101191988946), 'map50': np.float64(0.7589107169026967), 'map75': np.float64(0.6326765134822769)}
+head_metrics={'avg_iou': 0.5635658748351134, 'hungarian_iou': 0.7321071472727818, 'mp': np.float64(0.8750859489611671), 'mr': np.float64(0.7397150054729251), 'map': np.float64(0.5533373961155291), 'map50': np.float64(0.8146025312706981), 'map75': np.float64(0.6528920045030345)}
+all_metrics={'avg_iou': 0.5531329603473167, 'hungarian_iou': 0.744035241380334, 'mp': np.float64(0.8662089343889983), 'mr': np.float64(0.7265182484453804), 'map': np.float64(0.5563783900880418), 'map50': np.float64(0.8027869735417168), 'map75': np.float64(0.6459194654058638)}
+
+
+
+
+=============Experiment BaseModel_rtdetr-l.pt_Epochs_1024_BatchSize_1_ImgWidth_1920_StartLR_0.001_EndLR_0.0001_Optimizer_AdamW_ExcludeClasses_Bolt__Screw_Hole__InteriorScrew_MinScreenPerc_0.0==========
+hand_metrics={'avg_iou': 0.5606929557076816, 'hungarian_iou': 0.6682502486732569, 'mp': np.float64(0.6847070882613023), 'mr': np.float64(0.6412678935970861), 'map': np.float64(0.5248433899207743), 'map50': np.float64(0.6607740577870445), 'map75': np.float64(0.5938860430521901)}
+head_metrics={'avg_iou': 0.6001648086685318, 'hungarian_iou': 0.5964349480189057, 'mp': np.float64(0.7201777845293107), 'mr': np.float64(0.7044956450479571), 'map': np.float64(0.4593565668104568), 'map50': np.float64(0.6777258208358079), 'map75': np.float64(0.5258110907273147)}
+all_metrics={'avg_iou': 0.547705055869075, 'hungarian_iou': 0.5808216712691567, 'mp': np.float64(0.7291095635264068), 'mr': np.float64(0.6787362983604021), 'map': np.float64(0.47363425734383824), 'map50': np.float64(0.6715303030622797), 'map75': np.float64(0.5393658974472822)}
+
+
+
+
+=============Experiment BaseModel_rtdetr-l.pt_Epochs_1024_BatchSize_1_ImgWidth_1920_StartLR_0.001_EndLR_0.0001_Optimizer_AdamW_ExcludeClasses_Bolt__Screw_Hole__InteriorScrew_MinScreenPerc_0.0001234567901234568==========
+hand_metrics={'avg_iou': 0.4081264929337935, 'hungarian_iou': 0.6063192337751389, 'mp': np.float64(0.6210365093033403), 'mr': np.float64(0.5896278749150263), 'map': np.float64(0.4433711251738945), 'map50': np.float64(0.5617023015322675), 'map75': np.float64(0.5023242315458043)}
+head_metrics={'avg_iou': 0.34882707108323946, 'hungarian_iou': 0.4613055261698636, 'mp': np.float64(0.7132450091440398), 'mr': np.float64(0.5506338794805723), 'map': np.float64(0.3853472091620421), 'map50': np.float64(0.5877034939910833), 'map75': np.float64(0.44341155658273146)}
+all_metrics={'avg_iou': 0.32583219300363664, 'hungarian_iou': 0.5997428723068824, 'mp': np.float64(0.6804860046208683), 'mr': np.float64(0.5530968914470311), 'map': np.float64(0.4003693154526499), 'map50': np.float64(0.5779285011140498), 'map75': np.float64(0.45827771104217446)}

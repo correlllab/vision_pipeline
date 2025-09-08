@@ -1,9 +1,14 @@
 import os
 os.environ['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True'
+os.environ["MPLBACKEND"] = "Agg"  # must be before importing pyplot
+
 
 from ultralytics import YOLOWorld, YOLO, RTDETR
 import shutil
 import numpy as np
+
+import matplotlib
+matplotlib.use("Agg")             # belt + suspenders; still before pyplot
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
@@ -42,7 +47,7 @@ EPOCHS=1024
 PATIENCE=100
 IMG_WIDTH = int(np.ceil(1920/32)*32)  # must be multiple of 32
 STARTING_LR = 1e-3
-ENDING_LR = 1e-5
+ENDING_LR = 1e-4
 OPTIMIZER = "AdamW"
 BATCH_SIZE = 1
 DEBUG = False
@@ -59,8 +64,8 @@ base_test_cfg = {
     "rect":True,
     "split": "test",
     "half":True,            # FP16 if supported; faster, same metrics
-    "conf":0.25,           # doesn’t affect mAP; stable P/R readout
-    "iou":0.5,              # NMS IoU (typical default)
+    "conf":0.0,           # doesn’t affect mAP; stable P/R readout
+    "iou":0.0,              # NMS IoU (typical default)
     "max_det":300,          # plenty for fasteners
     "plots":True,           # saves PR curve, confusion matrix, etc.
     "verbose":False,
@@ -175,7 +180,7 @@ def get_average_IOU(
     check_cfg(cfg_dict)
 
     dataset = build_yolo_dataset(cfg, img_path, test_cfg['batch'], data_info)
-    data_loader = build_dataloader(dataset, batch=test_cfg['batch'], workers=8)
+    data_loader = build_dataloader(dataset, batch=test_cfg['batch'], workers=0)
 
     device = cfg.device
     test_model.to(device).eval()
