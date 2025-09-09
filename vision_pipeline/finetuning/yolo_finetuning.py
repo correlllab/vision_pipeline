@@ -31,7 +31,7 @@ ORIGINAL_DATASET = "./FastenerDataset"
 # model_constructor = lambda arg: YOLOWorld(arg)
 
 
-# base_model = "yolo11l-obb.pt"
+# base_model = "yolo11l.pt"
 # base_model = "yolov8x.pt"
 # model_constructor = lambda arg: YOLO(arg)
 
@@ -393,14 +393,16 @@ if __name__ == "__main__":
     import SplitGeneration
     exclude_classes_sets = [["Bolt", "Screw Hole", "InteriorScrew"]]
     out_file = "./experiment_results.txt"
-    with open(out_file, "w") as f:
-        f.write("===== Experiments =====\n")
-    min_screen_percentages = [0.0, ((32*32)/(1920*1080))*0.25]
+    # with open(out_file, "w") as f:
+    #     f.write("===== Experiments =====\n")
+    min_screen_percentages = [0.0]#, ((32*32)/(1920*1080))*0.25]
     RTDETR_constructor = lambda arg: RTDETR(arg)
     YOLO_constructer = lambda arg: YOLO(arg)
     WORLD_constructor = lambda arg: YOLOWorld(arg)
 
-    models_to_try = [("yolov8x-worldv2.pt", WORLD_constructor), ("rtdetr-l.pt", RTDETR_constructor), ("yolov8x.pt", YOLO_constructer), ("yolo11l-obb.pt", YOLO_constructer)]
+    models_to_try = [("yolov8x-worldv2.pt", WORLD_constructor), ("rtdetr-l.pt", RTDETR_constructor), ("yolov8x.pt", YOLO_constructer), ("yolo11l.pt", YOLO_constructer)]
+    # models_to_try = [("yolo11l.pt", YOLO_constructer)]
+    
     for model_name, constructor in models_to_try:
         base_model = model_name
         model_constructor = constructor

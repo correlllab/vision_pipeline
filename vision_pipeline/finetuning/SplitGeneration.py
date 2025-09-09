@@ -77,9 +77,9 @@ def assign_split_from_name(file_name):
                 set_number = int(chunks[i + 1])
                 if "interior" in file_name.lower():
                     quad = set_number % 4
-                    if quad in (0, 1):
+                    if quad in (0, 2):
                         return "train"
-                    elif quad in (2,):
+                    elif quad in (3,):
                         return "val"
                     else:
                         return "test"
@@ -300,7 +300,7 @@ def create_dataset(data_set_path, exclude_classes=None, min_screen_percentage=0.
     build_manifests_and_yamls(planned_root, class_names)
 
 
-def vis_dataset(yaml_path, batch_size=25):
+def vis_dataset(yaml_path, batch_size=25, splits=["train", "val", "test"]):
     yaml_path = os.path.abspath(yaml_path)
     ds_descriptor = None
     with open(yaml_path, "r", encoding="utf-8") as f:
@@ -308,7 +308,8 @@ def vis_dataset(yaml_path, batch_size=25):
     assert ds_descriptor is not None
     class_names = ds_descriptor["names"]
     fig_side_length = int(np.ceil(batch_size**0.5))
-    for split in ["train", "val", "test"]:
+    for split in splits:
+    
         img_text_path = ds_descriptor[split]
         img_paths = []
         label_paths = []
@@ -356,13 +357,15 @@ if __name__ == "__main__":
     # ---------------------------
     DATASET_ROOT = "./FastenerDataset"   # source (never modified)
     CLASSES_TO_EXCLUDE = ["Bolt", "Screw Hole", "InteriorScrew"]#[["Bolt", "Screw Hole", "InteriorScrew"], ["Bolt", "Screw Hole"], []]              # names from data.yaml (exact match), e.g. ["nut", "washer"]
-    min_screen_percentage = ((32*32)/(1920*1080))*0.25 # e.g. 0.01 = 1% of image area
+    min_screen_percentage = 0#((32*32)/(1920*1080))*0.25 # e.g. 0.01 = 1% of image area
     create_dataset(DATASET_ROOT, CLASSES_TO_EXCLUDE, min_screen_percentage=min_screen_percentage)
     print(f"{min_screen_percentage=}")
-    vis_dataset("./FastenerDataset/planned_dataset/data_all.yaml", batch_size = 100)
-    plt.show()
+    # vis_dataset("./FastenerDataset/planned_dataset/data_all.yaml", batch_size = 100)
+    # plt.show()
     # vis_dataset("./FastenerDataset/planned_dataset/data_hand.yaml", batch_size = 100)
     # plt.show()
     # vis_dataset("./FastenerDataset/planned_dataset/data_head.yaml", batch_size = 100)
     # plt.show()
+    vis_dataset("./FastenerDataset/planned_dataset/data_hand.yaml", batch_size = 100, splits=["test"])
+    plt.show()
 

@@ -31,3 +31,35 @@ all_metrics={'avg_iou': 0.547705055869075, 'hungarian_iou': 0.5808216712691567, 
 hand_metrics={'avg_iou': 0.4081264929337935, 'hungarian_iou': 0.6063192337751389, 'mp': np.float64(0.6210365093033403), 'mr': np.float64(0.5896278749150263), 'map': np.float64(0.4433711251738945), 'map50': np.float64(0.5617023015322675), 'map75': np.float64(0.5023242315458043)}
 head_metrics={'avg_iou': 0.34882707108323946, 'hungarian_iou': 0.4613055261698636, 'mp': np.float64(0.7132450091440398), 'mr': np.float64(0.5506338794805723), 'map': np.float64(0.3853472091620421), 'map50': np.float64(0.5877034939910833), 'map75': np.float64(0.44341155658273146)}
 all_metrics={'avg_iou': 0.32583219300363664, 'hungarian_iou': 0.5997428723068824, 'mp': np.float64(0.6804860046208683), 'mr': np.float64(0.5530968914470311), 'map': np.float64(0.4003693154526499), 'map50': np.float64(0.5779285011140498), 'map75': np.float64(0.45827771104217446)}
+
+
+
+
+=============Experiment BaseModel_yolov8x.pt_Epochs_1024_BatchSize_1_ImgWidth_1920_StartLR_0.001_EndLR_0.0001_Optimizer_AdamW_ExcludeClasses_Bolt__Screw_Hole__InteriorScrew_MinScreenPerc_0.0==========
+hand_metrics={'avg_iou': 0.5397082517080218, 'hungarian_iou': 0.7170032518250602, 'mp': np.float64(0.7344978946175259), 'mr': np.float64(0.7236730660643704), 'map': np.float64(0.5425271633235539), 'map50': np.float64(0.7313586708169384), 'map75': np.float64(0.6326859520301105)}
+head_metrics={'avg_iou': 0.5247598158574738, 'hungarian_iou': 0.7822642987424677, 'mp': np.float64(0.862427235766967), 'mr': np.float64(0.7143398030527806), 'map': np.float64(0.4870000015370602), 'map50': np.float64(0.784887203011856), 'map75': np.float64(0.5420585403677114)}
+all_metrics={'avg_iou': 0.48410630452124426, 'hungarian_iou': 0.769410084632405, 'mp': np.float64(0.8543972926468515), 'mr': np.float64(0.7075809043113588), 'map': np.float64(0.5004350851320654), 'map50': np.float64(0.7681638826100552), 'map75': np.float64(0.5660762599696207)}
+
+
+
+
+=============Experiment BaseModel_yolov8x.pt_Epochs_1024_BatchSize_1_ImgWidth_1920_StartLR_0.001_EndLR_0.0001_Optimizer_AdamW_ExcludeClasses_Bolt__Screw_Hole__InteriorScrew_MinScreenPerc_0.0001234567901234568==========
+hand_metrics={'avg_iou': 0.5026498309567443, 'hungarian_iou': 0.7235930351650014, 'mp': np.float64(0.7564007275645152), 'mr': np.float64(0.734714043720255), 'map': np.float64(0.5276539141291237), 'map50': np.float64(0.7232535850680555), 'map75': np.float64(0.5935799259286899)}
+head_metrics={'avg_iou': 0.49405654968682283, 'hungarian_iou': 0.7522883651337186, 'mp': np.float64(0.7708017203780844), 'mr': np.float64(0.7404672719372152), 'map': np.float64(0.4731011018308391), 'map50': np.float64(0.7658423569903525), 'map75': np.float64(0.5277556017322437)}
+all_metrics={'avg_iou': 0.4417144097303317, 'hungarian_iou': 0.7284139311975903, 'mp': np.float64(0.7781619330743369), 'mr': np.float64(0.7208064482348827), 'map': np.float64(0.48329431613595897), 'map50': np.float64(0.7490818905311676), 'map75': np.float64(0.5360372275469355)}
+
+
+
+
+=============Experiment BaseModel_yolo11l.pt_Epochs_1024_BatchSize_1_ImgWidth_1920_StartLR_0.001_EndLR_0.0001_Optimizer_AdamW_ExcludeClasses_Bolt__Screw_Hole__InteriorScrew_MinScreenPerc_0.0==========
+hand_metrics={'avg_iou': 0.5921941921114922, 'hungarian_iou': 0.776499710622288, 'mp': np.float64(0.743620751177105), 'mr': np.float64(0.7350181244220242), 'map': np.float64(0.5506735840457634), 'map50': np.float64(0.7401977008912687), 'map75': np.float64(0.6180775488069693)}
+head_metrics={'avg_iou': 0.5519673948413816, 'hungarian_iou': 0.7564212529639888, 'mp': np.float64(0.8421204149885491), 'mr': np.float64(0.7662725273524413), 'map': np.float64(0.5165824313731866), 'map50': np.float64(0.7947547625763568), 'map75': np.float64(0.5697428074147152)}
+all_metrics={'avg_iou': 0.5099127807882097, 'hungarian_iou': 0.72300738991324, 'mp': np.float64(0.8230256705561421), 'mr': np.float64(0.7530169486381175), 'map': np.float64(0.5250517499339293), 'map50': np.float64(0.7820580978724083), 'map75': np.float64(0.5782018433506485)}
+
+
+
+
+=============Experiment BaseModel_yolo11l.pt_Epochs_1024_BatchSize_1_ImgWidth_1920_StartLR_0.001_EndLR_0.0001_Optimizer_AdamW_ExcludeClasses_Bolt__Screw_Hole__InteriorScrew_MinScreenPerc_0.0001234567901234568==========
+hand_metrics={'avg_iou': 0.6110986741083972, 'hungarian_iou': 0.7544521545210192, 'mp': np.float64(0.863198223142967), 'mr': np.float64(0.8206576593109014), 'map': np.float64(0.5966159140416305), 'map50': np.float64(0.8433199274277927), 'map75': np.float64(0.6583363058237023)}
+head_metrics={'avg_iou': 0.5605758380594638, 'hungarian_iou': 0.7457920500481746, 'mp': np.float64(0.8953319719105759), 'mr': np.float64(0.7682629279120594), 'map': np.float64(0.5581891518076609), 'map50': np.float64(0.8469887201837921), 'map75': np.float64(0.6559646659315221)}
+all_metrics={'avg_iou': 0.5319228600197976, 'hungarian_iou': 0.755076669777433, 'mp': np.float64(0.8896471424386341), 'mr': np.float64(0.7822910296979095), 'map': np.float64(0.5714561005055652), 'map50': np.float64(0.8494106882048018), 'map75': np.float64(0.6558907509289995)}
