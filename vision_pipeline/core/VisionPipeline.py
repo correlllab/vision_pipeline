@@ -208,10 +208,10 @@ class VisionPipe:
             pcd = self.tracked_objects[obj_str]["pcds"][match_idx] + candidate_pcd
             pcd = pcd.voxel_down_sample(voxel_size=config["voxel_size"])
             # Apply statistical outlier removal to denoise the point cloud
-            if config["statistical_outlier_removal"]:
-                pcd, ind = pcd.remove_statistical_outliers(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
-            if config["radius_outlier_removal"]:
-                pcd, ind = pcd.remove_radius_outliers(nb_points=config["radius_nb_points"], search_radius=config["radius_radius"])
+            # if config["statistical_outlier_removal"]:
+            #     pcd, ind = pcd.remove_statistical_outliers(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
+            # if config["radius_outlier_removal"]:
+            #     pcd, ind = pcd.remove_radius_outliers(nb_points=config["radius_nb_points"], search_radius=config["radius_radius"])
             self.tracked_objects[obj_str]["pcds"][match_idx] = pcd
             self.tracked_objects[obj_str]["boxes"][match_idx] = pcd.get_axis_aligned_bounding_box()
             self.tracked_objects[obj_str]["rgb_masks"][match_idx].append(candidate_rgb_mask)
@@ -306,17 +306,19 @@ class VisionPipe:
             new_prediction["names"] = names
 
             self.tracked_objects[obj_str] = new_prediction
-    def query(self, query):
+    def query(self, query, conf_threshold):
         """
         Returns the top candidate point cloud and its belief score for a given object.
         """
         if query in self.tracked_objects and len(self.tracked_objects[query]["pcds"]) > 0 and len(self.tracked_objects[query]["probs"]) > 0:
             candiates = self.tracked_objects[query]
             #print(f"{candiates=}")
-            argmax1, maxval1 = max(enumerate(candiates["probs"]), key=lambda pair: pair[1])
-            top_candiate = candiates["pcds"][argmax1]
-            return top_candiate, maxval1
-        return o3d.t.geometry.PointCloud(), 0.0
+            matches = [(prob, pcd) for prob, pcd in zip(candiates["probs"], candiates["pcds"]) if prob >= conf_threshold]
+            matches = sorted(matches, key=lambda x: x[0], reverse=True)
+            probs = [m[0] for m in matches]
+            pcds = [m[1] for m in matches]
+            return pcds, probs
+        return [o3d.t.geometry.PointCloud()], [0.0]
 
 
 if __name__ == "__main__":
@@ -340,15 +342,37 @@ if __name__ == "__main__":
         rgb_img = data["color_img"]
         depth_img = data["depth_img"] * cam.depth_scale
         success, message = vp.update(rgb_img, depth_img, queries, intrinsics, obs_pose, time_stamp=time.time(), debug=do_debug)
-        # print(f"Update success: {success}, message: {message}")
+        if do_debug:
+            print(f"[GRABBER FUNC]Update success: {success}, message: {message}")
 
         tmp_latest_bbs = {}
         tmp_latest_pcs = {}
         tmp_latest_probs = {}
         for obj in vp.tracked_objects:
-            tmp_latest_bbs[obj] = vp.tracked_objects[obj]["boxes"]
-            tmp_latest_pcs[obj] = vp.tracked_objects[obj]["pcds"]
-            tmp_latest_probs[obj] = vp.tracked_objects[obj]["probs"]
+            pointclouds, probs = vp.query(obj, conf_threshold=0.3)
+            print(f"[GRABBER FUNC]{obj=} {len(pointclouds)=} {len(probs)=}")
+
+            # Create empty lists to hold only the valid data
+            valid_clouds = []
+            valid_probs = []
+
+            # Filter out empty point clouds to prevent the crash
+            for i, cloud in enumerate(pointclouds):
+                if not cloud.is_empty():
+                    valid_clouds.append(cloud)
+                    # Keep probs synchronized with the valid clouds
+                    valid_probs.append(probs[i])
+
+            # If no valid clouds were found after filtering, skip to the next object
+            if not valid_clouds:
+                continue
+
+            # Now, all operations are safe because they only use valid clouds
+            tmp_latest_pcs[obj] = valid_clouds
+            tmp_latest_probs[obj] = valid_probs
+            tmp_latest_bbs[obj] = [cloud.get_axis_aligned_bounding_box() for cloud in valid_clouds]
+
+
 
         out_dict = {
             "pcs": tmp_latest_pcs,

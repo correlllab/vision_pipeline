@@ -9,10 +9,14 @@
     "owlv2_discard_percentile": 0.75,
     "owlv2_sigmoid_gain": 1,
 
+
+    "yolo_world_weights": "yolov8x-worldv2_best.pt",
+
+
     "backbone": "yoloworld",
 
-    "sam2_model": "facebook/sam2-hiera-large",
-
+    "sam2_model": "sam2.1_hiera_large.pt",
+    "sam2_config": "sam2.1_hiera_l.yaml",
 
     "min_3d_points": 20,
     "voxel_size": 0.001,
@@ -46,8 +50,13 @@
         "drill",
         "screwdriver",
         "tape measure",
-        "cat",
-        "screw"
+        "Bolt",
+        "BusBar",
+        "InteriorScrew",
+        "Nut",
+        "OrangeCover",
+        "Screw",
+        "Screw Hole"
     ],
     
     "rs_name_spaces": [

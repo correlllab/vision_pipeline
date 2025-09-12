@@ -1,4 +1,5 @@
 import torch
+from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 import warnings
 import numpy as np
@@ -84,9 +85,15 @@ class SAM2_PC:
         Parameters:
         - iou_th: IoU threshold for NMS
         """
-        self.sam_predictor = SAM2ImagePredictor.from_pretrained(config["sam2_model"])
+        weight_path = os.path.join(core_dir, "ModelWeights", config["sam2_model"])
+        config_path = os.path.join("configs", "sam2.1", config["sam2_config"])
+        assert os.path.exists(weight_path), f"[SAM2_PC init] Weights at {weight_path} not found"
+        # assert os.path.exists(config_path), f"[SAM2_PC init] Config at {weight_path} not found"
+        sam_model = build_sam2(config_path, weight_path)
+        self.sam_predictor = SAM2ImagePredictor(sam_model)
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.o3dDevice = o3c.Device("CPU:0") #o3c.Device("CUDA:0")
+        print(f"[SAM2_PC init] Successfully SAM2 inilitailzied using device {self.device}, Open3D device {self.o3dDevice}")
 
     def get_masks(self, rgb_img, depth_img, bbox, debug):
         #Run sam2 on all the boxes
@@ -229,7 +236,8 @@ if __name__ == "__main__":
     from realsense_devices import vis_loop
 
 
-    selected_model = input("input yolo for yolo world, gemini for gemini, owl for Owlv2: ")
+    #selected_model = input("input yolo for yolo world, gemini for gemini, owl for Owlv2: ")
+    selected_model = "yolo"
     if selected_model == "gemini":
         bb = Gemini_BB()
     elif selected_model == "owl":
