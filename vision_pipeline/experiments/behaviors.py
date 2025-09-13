@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from custom_ros_messages.srv import Query, UpdateTrackedObject
+from custom_ros_messages.srv import Query, UpdateTrackedObject, UpdateBeliefs
 from custom_ros_messages.action import DualArm
 from geometry_msgs.msg import Pose
 from std_msgs.msg import Float64MultiArray
@@ -26,12 +26,15 @@ class MainNode(Node):
     def __init__(self):
         rclpy.init()
         super().__init__('coordinator')
-        # self.update_client = self.create_client(UpdateTrackedObject, 'vp_update_tracked_object')
-        # self.query_client = self.create_client(Query, 'vp_query_tracked_objects')
-        # while not self.update_client.wait_for_service(timeout_sec=1.0):
-        #     print('Update Service not available, waiting again...')
-        # while not self.query_client.wait_for_service(timeout_sec=1.0):
-        #     print('Query Service not available, waiting again...')
+        self.update_tracked_client = self.create_client(UpdateTrackedObject, 'vp_update_tracked_object')
+        self.query_client = self.create_client(Query, 'vp_query_tracked_objects')
+        self.update_belief_client = self.create_client(UpdateBeliefs, "vp_update_beliefs")
+        while not self.update_tracked_client.wait_for_service(timeout_sec=1.0):
+            print('Update Tracked Service not available, waiting again...')
+        while not self.query_client.wait_for_service(timeout_sec=1.0):
+            print('Query Service not available, waiting again...')
+        while not self.update_belief_client.wait_for_service(timeout_sec=1.0):
+            print("Belief update service not available")
         self.action_client = ActionClient(
             self,
             DualArm,
@@ -46,14 +49,25 @@ class MainNode(Node):
         self.l_hand = None
         self.r_hand = None
         self.go_home()
-        
-        
 
         self.open_hands()
         time.sleep(1)
         self.close_hands()
         time.sleep(1)
 
+    def update_head(self):
+        self.update_belief("/realsense/head")
+    def update_hand(self):
+        self.update_belief("/realsense/left_hand")
+
+    def update_belief(self, namespace):
+        req = UpdateBeliefs.Request()
+        req.camera_name = namespace
+        print("sending belief update request")
+        future = self.update_belief_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future)
+        result = future.result()
+        print(f"[update belief] {result.message=}, {result.success=}")
     def set_hands(self, l_goal=None, r_goal=None):
         if l_goal is not None:
             self.l_hand = l_goal
@@ -74,7 +88,9 @@ class MainNode(Node):
         self.set_hands(l_goal = l_hand, r_goal = r_hand)
     def close_hands(self):
         l_hand = [0.0]*6
+        l_hand[5] = 1.0
         r_hand = [0.0]*6
+        r_hand[5] = 1.0
         self.set_hands(l_goal = l_hand, r_goal = r_hand)
 
     def go_home(self):
@@ -86,8 +102,34 @@ class MainNode(Node):
         self.close_hands()
         time.sleep(1)
 
+    def point_camera(self, x, y, z):
+        view_height = 0.8
+        safe_height = 0.0
+        x_offset = -0.1
+        new_x = x + x_offset
+        new_y = y
+        new_z = z + view_height
+        roll = 90
+        pitch = 90
+        yaw = 0
 
-    def point_at(self, x,y,z):
+        ready_goal = self.l_arm_goal
+        ready_goal[0] = new_x
+        ready_goal[1] = new_y
+        ready_goal[2] = new_z + safe_height
+        ready_goal[3] = roll
+        ready_goal[4] = pitch
+        ready_goal[5] = yaw
+
+        self.send_arm_goal(left_arr=ready_goal)
+        
+        final_goal = ready_goal
+        final_goal[2] -= safe_height
+        self.send_arm_goal(left_arr=final_goal)
+
+
+
+    def point_finger(self, x,y,z):
         use_left_hand = y > 0
 
         #first raise and turn
@@ -120,12 +162,16 @@ class MainNode(Node):
             self.set_hands(r_goal = [0.0, 0.0, 0.0, 1.0, 0.0, 1.0])
 
         #finally go to pose
-        x_new = x
+        x_new = x + 0.05
         y_new = y
+
+        if use_left_hand:
+            y_new += 0.05
+        else:
+            y_new -= 0.05
         hand_length = 0.3 #30mm
         z_new = z + hand_length
 
-        input("decend ? CTRL c to cancel")
         if use_left_hand:
             final_goal = ready_goal
             final_goal[0] = x_new
@@ -139,22 +185,23 @@ class MainNode(Node):
             final_goal[2] = z_new
             self.send_arm_goal(right_arr=final_goal)
         
-            
     def track_object(self, obj_name):
         req = UpdateTrackedObject.Request()
         req.object = obj_name
         req.action = "add"
-        future = self.update_client.call_async(req)
+        future = self.update_tracked_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         result = future.result()
         return result
 
-    def query_objects(self, query):
+    def query_objects(self, query, threshold):
         req = Query.Request()
         req.query = query
+        req.confidence_threshold = threshold
         future = self.query_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         result = future.result()
+        print(f"{query=} result: {result.success}, message: {result.message}")
         return result
 
     def send_arm_goal(self, left_arr = None, right_arr = None):
