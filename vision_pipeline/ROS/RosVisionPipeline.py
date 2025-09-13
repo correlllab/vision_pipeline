@@ -19,7 +19,7 @@ from sensor_msgs_py   import point_cloud2
 from std_msgs.msg import Header
 from rclpy.time import Time
 from visualization_msgs.msg import Marker, MarkerArray
-from custom_ros_messages.srv import Query, UpdateTrackedObject, UpdateBeliefs
+from custom_ros_messages.srv import Query, UpdateTrackedObject, UpdateBeliefs, ResetBeliefs
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
 
@@ -88,6 +88,11 @@ class ROS_VisionPipe(VisionPipe, Node):
             self.update_beliefs_callback
         )
 
+        self.reset_belief_srv = self.create_service(
+            ResetBeliefs, 'vp_reset_beliefs',
+            self.reset_vision_pipeline_callback
+        )
+
     def update_track_string_callback(self, request, response):
         print(f"Received request to {request.action} track string: {request.object}")
         if request.action == "add":
@@ -107,6 +112,25 @@ class ROS_VisionPipe(VisionPipe, Node):
         else:
             response.result = False
             response.message = "Invalid action. Use 'add' or 'remove'."
+        return response
+
+    def reset_vision_pipeline_callback(self, request, response):
+        with self._lock:
+            self.tracked_objects = {}
+            self.pose_time_tracker = []
+            self.update_count = 0
+
+            self.track_strings = []
+            self.next_marker_id = 1
+            for pub in self.marker_publishers.values():
+                self.destroy_publisher(pub)
+            for pub in self.pc_publishers.values():
+                self.destroy_publisher(pub)
+            self.marker_publishers = {}
+            self.pc_publishers = {}
+        print("Vision pipeline has been reset.")
+        response.success = True
+        response.message = "Vision pipeline reset successfully."
         return response
 
     def query_tracked_objects_callback(self, request, response):
@@ -321,12 +345,15 @@ class ExampleClient(Node):
         self.update_tracked_client = self.create_client(UpdateTrackedObject, 'vp_update_tracked_object')
         self.update_belief_client = self.create_client(UpdateBeliefs, 'vp_update_beliefs')
         self.query_client = self.create_client(Query, 'vp_query_tracked_objects')
+        self.reset_belief_client = self.create_client(ResetBeliefs, 'vp_reset_beliefs')
         while not self.update_tracked_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Update  tracked Service not available, waiting again...')
         while not self.query_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Query Service not available, waiting again...')
         while not self.update_belief_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Update belief Service not available, waiting again...')
+        while not self.reset_belief_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Reset belief Service not available, waiting again...')
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
@@ -366,18 +393,24 @@ class ExampleClient(Node):
         future = self.update_belief_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         return future.result()
+    
+    def reset_vp(self):
+        req = ResetBeliefs.Request()
+        future = self.reset_belief_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future)
+        return future.result()
 
 def TestExampleClient(args=None):
     rclpy.init()
     ec = ExampleClient()
     try:
         while rclpy.ok():
-            i = input("two words, the action, add, remove, belief, or query (a, r, q, b): followed by string: ").lower().split()
+            i = input("two words, the action, add, remove, belief, query, or reset (a, r, q, b, re): followed by string: ").lower().split()
             print(f"{i=}")
             action = i[0]
             track_string = " ".join(i[1:])
             print(f"{action=}, {track_string=}")
-            if action not in ["add", "remove", "query", "belief", "a", "r", "q", "b"]:
+            if action not in ["add", "remove", "query", "belief", "reset", "a", "r", "q", "b", "re"]:
                 print("Invalid action. Please enter add, remove, or query")
                 continue
             if action == "a" or action == "add":
@@ -394,6 +427,10 @@ def TestExampleClient(args=None):
                 name_space = input("Enter the camera name space to update beliefs from: ")
                 ub_out = ec.update_beliefs(name_space)
                 print(f"update_beliefs response: {ub_out.message}, {ub_out.success}\n")
+            elif action == "re" or action == "reset":
+                print("Resetting vision pipeline...")
+                re_out = ec.reset_vp()
+                print(f"Vision pipeline reset. {re_out.message} {re_out.success}\n")
             time.sleep(1)
 
     except Exception as e:

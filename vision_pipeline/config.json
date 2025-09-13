@@ -20,8 +20,8 @@
 
     "min_3d_points": 20,
     "voxel_size": 0.001,
-    "pose_expire_time": 1,
-    "change_in_pose_threshold": 0.1,
+    "pose_expire_time": 0,
+    "change_in_pose_threshold": 0.0,
     "vis_k": 10,
 
 
@@ -39,7 +39,7 @@
     "hausdorff_match_threshold": 0.05,
     "fscore_match_threshold":0.2,
     "fscore_radius":0.01,
-    "mahalanobis_match_threshold": 0.6,
+    "mahalanobis_match_threshold": 2,
 
     "visible_portion_requirement": 0.9,
     "occlusion_tol":0.1,

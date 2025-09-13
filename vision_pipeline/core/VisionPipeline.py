@@ -100,12 +100,12 @@ class VisionPipe:
         """
         queries = [q.lower() for q in queries]
         #throw away old poses
-        self.pose_time_tracker = [(pose, time) for pose, time in self.pose_time_tracker if time > (time_stamp - config["pose_expire_time"])]
+        # self.pose_time_tracker = [(pose, time) for pose, time in self.pose_time_tracker if time > (time_stamp - config["pose_expire_time"])]
 
-        #if the current call to update is too close to a prior, non expired call to update
-        pose_distances = [np.linalg.norm(np.array(obs_pose) - np.array(pose)) for pose, _ in self.pose_time_tracker]
-        if len(pose_distances) > 0 and min(pose_distances) < config["change_in_pose_threshold"] and self.update_count > 0:
-            return False, "Pose too close in time and distance to a previous update"
+        # #if the current call to update is too close to a prior, non expired call to update
+        # pose_distances = [np.linalg.norm(np.array(obs_pose) - np.array(pose)) for pose, _ in self.pose_time_tracker]
+        # if len(pose_distances) > 0 and min(pose_distances) < config["change_in_pose_threshold"] and self.update_count > 0:
+        #     return False, "Pose too close in time and distance to a previous update"
 
         candidates_3d = self.get_candidates(rgb_img, depth_img, queries, I, obs_pose, debug)
         
@@ -128,8 +128,10 @@ class VisionPipe:
         candidates_2d = self.BackBone.predict(rgb_img, queries, debug=debug)
         if debug:
             annotated_img = annotate_2d_candidates(rgb_img, candidates_2d)
-            cv2.imshow("2d_candidates", annotated_img)
-            cv2.waitKey(1)
+            # cv2.imshow("2d_candidates", annotated_img)
+            # cv2.waitKey(1)
+            cv2.imwrite(os.path.join(fig_dir, "VisionPipeline", f"2d_candidates_{self.update_count:03d}.png"), annotated_img)
+            print("here")
         #prepare the 3d predictions dict
         candidates_3d = {}
         #Will need to transform points according to robot pose
