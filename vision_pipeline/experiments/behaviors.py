@@ -1,13 +1,14 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from custom_ros_messages.srv import Query, UpdateTrackedObject, UpdateBeliefs
+from custom_ros_messages.srv import Query, UpdateTrackedObject, UpdateBeliefs, ResetBeliefs
 from custom_ros_messages.action import DualArm
 from geometry_msgs.msg import Pose
 from std_msgs.msg import Float64MultiArray
 from scipy.spatial.transform import Rotation as R
 import time
 from unitree_go.msg import MotorCmds, MotorCmd
+from visualization_msgs.msg import Marker
 
 def pose_array_to_message(pose_array):
         pose = Pose()
@@ -29,6 +30,7 @@ class MainNode(Node):
         self.update_tracked_client = self.create_client(UpdateTrackedObject, 'vp_update_tracked_object')
         self.query_client = self.create_client(Query, 'vp_query_tracked_objects')
         self.update_belief_client = self.create_client(UpdateBeliefs, "vp_update_beliefs")
+        self.reset_beliefs_client = self.create_client(ResetBeliefs, "vp_reset_beliefs")
         while not self.update_tracked_client.wait_for_service(timeout_sec=1.0):
             print('Update Tracked Service not available, waiting again...')
         while not self.query_client.wait_for_service(timeout_sec=1.0):
@@ -41,9 +43,10 @@ class MainNode(Node):
             'move_dual_arm'
         )
         self.hand_pub = self.create_publisher(MotorCmds, '/inspire/cmd', 10)
+        self.marker_pub = self.create_publisher(Marker, "/camera_marker", 10)
 
 
-
+        self.hand_length = 0.3
         self.r_arm_goal = None
         self.l_arm_goal = None
         self.l_hand = None
@@ -55,6 +58,42 @@ class MainNode(Node):
         self.close_hands()
         time.sleep(1)
 
+    def publish_marker(self, x,y,z):
+        marker = Marker()
+
+        marker.header.frame_id = "pelvis"
+        marker.ns = "behavior marker"
+
+        marker.type = Marker.DELETEALL
+        self.marker_pub.publish(marker)
+
+
+
+        marker.type = Marker.SPHERE
+        marker.pose.position.x = x
+        marker.pose.position.y = y
+        marker.pose.position.z = z
+        marker.pose.orientation.w = 1.0
+
+        marker.scale.x = 0.1
+        marker.scale.y = 0.1
+        marker.scale.z = 0.1
+
+        marker.color.r = 0.0
+        marker.color.g = 0.0
+        marker.color.b = 1.0
+        marker.color.a = 1.0
+
+        self.marker_pub.publish(marker)
+
+    def reset_beliefs(self):
+        request = ResetBeliefs.Request()
+        print(f"sending reset request")
+        future = self.reset_beliefs_client.call_async(request)
+        rclpy.spin_until_future_complete(self, future)
+        result = future.result()
+        print(f"{result.message=}, {result.success=}")
+
     def update_head(self):
         self.update_belief("/realsense/head")
     def update_hand(self):
@@ -62,7 +101,7 @@ class MainNode(Node):
 
     def update_belief(self, namespace):
         req = UpdateBeliefs.Request()
-        req.camera_name = namespace
+        req.camera_name_space = namespace
         print("sending belief update request")
         future = self.update_belief_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
@@ -102,9 +141,10 @@ class MainNode(Node):
         self.close_hands()
         time.sleep(1)
 
-    def point_camera(self, x, y, z):
-        view_height = 0.8
-        safe_height = 0.0
+    def point_camera(self, x, y, z, height):
+        self.publish_marker(x,y,z)
+        safe_height = 0.2
+        view_height = height + self.hand_length
         x_offset = -0.1
         new_x = x + x_offset
         new_y = y
@@ -116,12 +156,13 @@ class MainNode(Node):
         ready_goal = self.l_arm_goal
         ready_goal[0] = new_x
         ready_goal[1] = new_y
-        ready_goal[2] = new_z + safe_height
+        ready_goal[2] = new_z
         ready_goal[3] = roll
         ready_goal[4] = pitch
         ready_goal[5] = yaw
 
-        self.send_arm_goal(left_arr=ready_goal)
+        if self.l_arm_goal[3] != 90 and self.l_arm_goal[4] != 90:
+            self.send_arm_goal(left_arr=ready_goal)
         
         final_goal = ready_goal
         final_goal[2] -= safe_height
@@ -169,7 +210,7 @@ class MainNode(Node):
             y_new += 0.05
         else:
             y_new -= 0.05
-        hand_length = 0.3 #30mm
+        
         z_new = z + hand_length
 
         if use_left_hand:
@@ -189,6 +230,7 @@ class MainNode(Node):
         req = UpdateTrackedObject.Request()
         req.object = obj_name
         req.action = "add"
+        print("sending tracked object request")
         future = self.update_tracked_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         result = future.result()
@@ -198,6 +240,7 @@ class MainNode(Node):
         req = Query.Request()
         req.query = query
         req.confidence_threshold = threshold
+        print("sending query request")
         future = self.query_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         result = future.result()
