@@ -170,7 +170,7 @@ class SAM2_PC:
             print(f"[SAM2_PC predict] query_str = {query_str}")
         masked_depth, masked_rgb = self.get_masks(rgb_img, depth_img, bbox, debug=debug)
         if masked_depth is None or masked_rgb is None:
-            return [], [], torch.tensor([]), [], []
+            return [], [], [], [], []
         if debug:
             print(f"[SAM2_PC predict] masked_depth.shape = {masked_depth.shape}")
             print(f"[SAM2_PC predict] masked_rgb.shape   = {masked_rgb.shape}")

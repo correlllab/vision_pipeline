@@ -375,7 +375,7 @@ class YOLO_WORLD:
         """
         self.model.set_classes(queries)
         with torch.no_grad():
-            results = self.model.predict(img, show=False, verbose=debug)[0]
+            results = self.model.predict(img, show=False, verbose=debug, conf=0.001)[0]
         if debug:
             print(f"[YOLO_WORLD predict]{dir(results.boxes)=}")
 
@@ -383,13 +383,14 @@ class YOLO_WORLD:
         probs   = results.boxes.conf            # (N,)
         cls_ids = results.boxes.cls.long()      # (N,)
 
-        # clamp probabilities so each is at least vlm_tpr
+        # # clamp probabilities so each is at least vlm_tpr
         if isinstance(probs, torch.Tensor):
             tpr_tensor = torch.tensor(self.vlm_tpr, device=probs.device, dtype=probs.dtype)
             probs = torch.maximum(probs, tpr_tensor)
         else:
             # fallback, though ultralytics returns tensors
             probs = [max(float(p), self.vlm_tpr) for p in probs]
+            pass
 
         candidates_2d = {}
         for idx, query in enumerate(queries):

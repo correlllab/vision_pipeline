@@ -281,7 +281,7 @@ class TFHandler:
     """
     A reusable class to handle TF2 transformations.
     """
-    def __init__(self, node: Node, cache_time: float = 300.0):
+    def __init__(self, node: Node, cache_time: float = 60.0):
         """
         Initializes the TF handler.
         
@@ -315,7 +315,9 @@ class TFHandler:
         """
         # Normalize stamp to rclpy.time.Time if it's from a message header
         stamp = time_stamp if isinstance(time_stamp, Time) else Time.from_msg(time_stamp)
-        
+        #FUCKIT WE BALL
+        stamp = Time()  # latest available
+
         try:
             
             # Perform the lookup

@@ -30,10 +30,11 @@ config = json.load(open(config_path, 'r'))
 
 fig_dir = os.path.join(parent_dir, 'figures')
 os.makedirs(fig_dir, exist_ok=True)
+import shutil
+shutil.rmtree(os.path.join(fig_dir, "VisionPipeline"))
 os.makedirs(os.path.join(fig_dir, "VisionPipeline"), exist_ok=True)
 
-
-from math_utils import iou_3d, in_image, is_obscured, mahalanobis_distance, annotate_2d_candidates
+from math_utils import iou_3d, in_image, is_obscured, mahalanobis_distance, annotate_2d_candidates, mean_nn_dist
 from SAM2 import SAM2_PC
 from BBBackBones import OWLv2, Gemini_BB, YOLO_WORLD
 
@@ -44,7 +45,7 @@ class VisionPipe:
         Sets up the tracked objects dictionary to store 3D predictions.
         tracked_objects[object_name] = {
             "boxes": List of 3D bounding boxes,
-            "probs": Tensor of belief probs,
+            "probs": List of belief probs,
             "pcds": List of point clouds,
             "rgb_masks": List of lists of RGB masks,
             "depth_masks": List of lists of depth masks
@@ -83,6 +84,9 @@ class VisionPipe:
         elif config["candidate_match_method"] == "mahalanobis":
             self.match_method = "mahalanobis"
             self.match_threshold = config["mahalanobis_match_threshold"]
+        elif config["candidate_match_method"] == "mean_nn":
+            self.match_method = "mean_nn"
+            self.match_threshold = config["mean_nn_match_threshold"]
         else:
             raise ValueError(f"Unknown match method {config['candidate_match_method']=}. Please choose 'iou','chamfer','hausdorff', 'mahalanobis' or 'fscore'.")
 
@@ -92,7 +96,7 @@ class VisionPipe:
         Generates a set of 3D predictions and then updates the tracked objects based on the new observations.
         candidates_3d[object_name] = {
             "boxes": List of 3D bounding boxes,
-            "probs": Tensor of belief probs,
+            "probs": Lensor of belief probs,
             "pcds": List of point clouds,
             "rgb_masks": List of RGB masks,
             "depth_masks": List of depth masks
@@ -112,7 +116,7 @@ class VisionPipe:
         #update the tracked objects with the new predictions
         self.update_tracked_objects(candidates_3d, obs_pose, I, rgb_img, depth_img, debug=debug)
         
-        self.remove_low_belief_objects()
+        # self.remove_low_belief_objects()
         
         self.update_count += 1
         self.pose_time_tracker.append((obs_pose, time_stamp))
@@ -126,12 +130,10 @@ class VisionPipe:
     def get_candidates(self, rgb_img, depth_img, queries, I, obs_pose, debug):
         #get 2d predictions dict with lists of probabilities, boxes from OWLv2
         candidates_2d = self.BackBone.predict(rgb_img, queries, debug=debug)
-        if debug:
-            annotated_img = annotate_2d_candidates(rgb_img, candidates_2d)
-            # cv2.imshow("2d_candidates", annotated_img)
-            # cv2.waitKey(1)
-            cv2.imwrite(os.path.join(fig_dir, "VisionPipeline", f"2d_candidates_{self.update_count:03d}.png"), annotated_img)
-            print("here")
+        annotated_img = annotate_2d_candidates(rgb_img, candidates_2d)
+        # cv2.imshow("2d_candidates", annotated_img)
+        # cv2.waitKey(1)
+        cv2.imwrite(os.path.join(fig_dir, "VisionPipeline", f"2d_candidates_{self.update_count:03d}.png"), annotated_img)
         #prepare the 3d predictions dict
         candidates_3d = {}
         #Will need to transform points according to robot pose
@@ -147,20 +149,9 @@ class VisionPipe:
                 print(f"   {len(candidates_3d[object_str]['boxes'])=}, {len(candidates_3d[object_str]['pcds'])=}, {len(candidates_3d[object_str]['probs'])=}, {len(candidates_3d[object_str]['rgb_masks'])=}, {len(candidates_3d[object_str]['depth_masks'])=}")
         return candidates_3d
 
-    def belief_update(self, belief_prob, sample_prob, sample_weight = 1):
-        # Apply the weight to the sample probability
-        # A weight < 1 pulls the probability towards 0.5, reducing its impact
-        weighted_sample_prob = sample_prob ** sample_weight
-
-        # Proceed with the Bayesian update using the weighted probability
-        num = belief_prob * weighted_sample_prob
-        den = num + ((1 - belief_prob) * (1 - weighted_sample_prob))
-
-        # Avoid division by zero if den is 0
-        # if den == 0:
-        #     return 0.0
-        #should never be 0
-        
+    def belief_update(self, belief_prob, sample_prob):
+        num = belief_prob * sample_prob
+        den = num + ((1 - belief_prob) * (1 - sample_prob))
         new_prob = num / den
         if new_prob >= 1:
             new_prob = 0.99
@@ -173,6 +164,8 @@ class VisionPipe:
             distances = [1 - iou_3d(candidate_box, box) for box in self.tracked_objects[obj_str]["boxes"][:n_considered]]
         elif self.match_method == "mahalanobis":
             distances = [mahalanobis_distance(candidate_pcd, tracked_pcd) for tracked_pcd in self.tracked_objects[obj_str]["pcds"][:n_considered]]
+        elif self.match_method == "mean_nn":
+            distances = [mean_nn_dist(candidate_pcd, tracked_pcd) for tracked_pcd in self.tracked_objects[obj_str]["pcds"][:n_considered]]
         else:
             distances = [candidate_pcd.compute_metrics(tracked_pcd, self.match_method, self.metric_parameters).item() for tracked_pcd in self.tracked_objects[obj_str]["pcds"][:n_considered]]
         if config["candidate_match_method"] == "fscore":
@@ -218,7 +211,11 @@ class VisionPipe:
             self.tracked_objects[obj_str]["boxes"][match_idx] = pcd.get_axis_aligned_bounding_box()
             self.tracked_objects[obj_str]["rgb_masks"][match_idx].append(candidate_rgb_mask)
             self.tracked_objects[obj_str]["depth_masks"][match_idx].append(candidate_depth_mask)
-            self.tracked_objects[obj_str]["probs"][match_idx] = self.belief_update(self.tracked_objects[obj_str]["probs"][match_idx], candidate_prob)
+            new_belief = self.belief_update(self.tracked_objects[obj_str]["probs"][match_idx], candidate_prob)
+            old_belief = self.tracked_objects[obj_str]["probs"][match_idx]
+            print(f"[VisionPipe merge_candidate]{obj_str} {match_idx} {old_belief=} {candidate_prob=} -> {new_belief=}")
+
+            self.tracked_objects[obj_str]["probs"][match_idx] = new_belief
         return match_idx
 
     def update_tracked_objects(self, candidates_3d, obs_pose, I, rgb_img, depth_img, debug):
@@ -226,7 +223,7 @@ class VisionPipe:
         Given a set of 3D candidates, updates the tracked objects dictionary.
         tracked_objects[object_name] = {
             "boxes": List of 3D bounding boxes,
-            "probs": Tensor of belief probs,
+            "probs": List of belief probs,
             "pcds": List of point clouds,
             "rgb_masks": List of lists of RGB masks,
             "depth_masks": List of lists of depth masks
@@ -234,14 +231,15 @@ class VisionPipe:
         }
         candidates_3d[object_name] = {
             "boxes": List of 3D bounding boxes,
-            "probs": Tensor of belief probs,
+            "probs": List of belief probs,
             "pcds": List of point clouds,
             "rgb_masks": List of RGB masks,
             "depth_masks": List of depth masks
         }
         """
         #for each candidate object in candidates_3d
-        for obj_str, candidates in candidates_3d.items():
+        for i, (obj_str, candidates) in enumerate(candidates_3d.items()):
+            print(f"[VisionPipe update_tracked_objects] {i+1}/{len(candidates_3d)}")
             #if it wasnt being tracked before add all candidates to tracked objects
             if obj_str not in self.tracked_objects:
                 self.tracked_objects[obj_str] = candidates
@@ -270,13 +268,16 @@ class VisionPipe:
                 if obj_updated or not in_image(pcd, obs_pose, I) or is_obscured(pcd, depth_img, obs_pose, I):
                     if debug:
                         print(f"[VisionPipe update_tracked_objects] tracked object {i} {self.tracked_objects[obj_str]['names'][i]} was not decayed {obj_updated=} in_image: {in_image(pcd, obs_pose, I)}, is_obscured: {is_obscured(pcd, depth_img, obs_pose, I)}")
-
                     continue
                 if debug:
                     print(f"[VisionPipe update_tracked_objects] tracked object {i} {self.tracked_objects[obj_str]['names'][i]} did not match and was not in the image")
                 p_fn = config["vlm_false_negative_rate"]
+                old_belief = self.tracked_objects[obj_str]["probs"][i]
+                new_belief = self.belief_update(tracked_prob, p_fn)
+                print(f"[VisionPipe update_tracked_objects]{obj_str} {i} {old_belief=} {p_fn=} -> {new_belief=}")
 
                 self.tracked_objects[obj_str]["probs"][i] = self.belief_update(tracked_prob, p_fn)
+
 
     def remove_low_belief_objects(self):
         """
@@ -315,12 +316,14 @@ class VisionPipe:
         if query in self.tracked_objects and len(self.tracked_objects[query]["pcds"]) > 0 and len(self.tracked_objects[query]["probs"]) > 0:
             candiates = self.tracked_objects[query]
             #print(f"{candiates=}")
-            matches = [(prob, pcd) for prob, pcd in zip(candiates["probs"], candiates["pcds"]) if prob >= conf_threshold]
+            
+            matches = [(prob, pcd, name) for prob, pcd, name in zip(candiates["probs"], candiates["pcds"], candiates["names"]) if prob >= conf_threshold]
             matches = sorted(matches, key=lambda x: x[0], reverse=True)
             probs = [m[0] for m in matches]
             pcds = [m[1] for m in matches]
-            return pcds, probs
-        return [o3d.t.geometry.PointCloud()], [0.0]
+            names = [m[2] for m in matches]
+            return pcds, probs, names
+        return [o3d.t.geometry.PointCloud()], [0.0], [""]
 
 
 if __name__ == "__main__":
@@ -351,7 +354,7 @@ if __name__ == "__main__":
         tmp_latest_pcs = {}
         tmp_latest_probs = {}
         for obj in vp.tracked_objects:
-            pointclouds, probs = vp.query(obj, conf_threshold=0.3)
+            pointclouds, probs, names = vp.query(obj, conf_threshold=0.3)
             print(f"[GRABBER FUNC]{obj=} {len(pointclouds)=} {len(probs)=}")
 
             # Create empty lists to hold only the valid data
