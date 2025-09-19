@@ -78,6 +78,8 @@ ENV CYCLONEDDS_URI=file:///etc/cyclonedds_desktop.xml
 
 
 
+
+
 # Entry point script to source and conditionally build
 RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \
     echo 'set -e' >> /ros_entrypoint.sh && \

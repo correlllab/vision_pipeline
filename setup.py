@@ -34,7 +34,9 @@ setup(
             'foundation_models = vision_pipeline.ROS.RosRealsense:TestFoundationModels', #publishes topic to be used with FoundationModels.rviz
             'vp = vision_pipeline.ROS.RosVisionPipeline:RunVisionPipe', #executes main vision pipeline
             'exampleclient = vision_pipeline.ROS.RosVisionPipeline:TestExampleClient', #terminal based interactionwith vision pipeline
-            'main = vision_pipeline.ROS.main:main', #moves the arms with vision
+            'openbox = vision_pipeline.experiments.OpenBoxHardCode:main', #moves the arms with vision
+            'prop_exp = vision_pipeline.experiments.proposed:main', #moves the arms with vision
+
         ],
     },
 )

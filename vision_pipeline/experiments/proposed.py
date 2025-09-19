@@ -1,0 +1,171 @@
+
+import time
+import numpy as np
+import os
+import sys
+import random
+experiment_dir = os.path.dirname(os.path.realpath(__file__))
+parent_dir = os.path.join(experiment_dir, "..")
+utils_dir = os.path.join(parent_dir, "utils")
+core_dir = os.path.join(parent_dir, "core")
+fig_dir = os.path.join(parent_dir, 'figures')
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+if experiment_dir not in sys.path:
+    sys.path.insert(0, experiment_dir)
+if utils_dir not in sys.path:
+    sys.path.insert(0, utils_dir)
+if core_dir not in sys.path:
+    sys.path.insert(0, core_dir)
+import json
+config = json.load(open(os.path.join(parent_dir, "config.json")))
+
+from ros_utils import msg_to_pcd
+from behaviors import BehaviorNode
+import matplotlib
+matplotlib.use('TkAgg') # Use the Tkinter backend
+import matplotlib.pyplot as plt
+import pandas as pd
+import json
+
+
+csv_path = os.path.join(experiment_dir, "trajectories.csv")
+def save_trajectory(
+    obj_type, 
+    distance_history, 
+    belief_history, 
+    n_points_history
+):
+    pc_match_method = "chamfer"
+    # Create a DataFrame for the new row
+    new_row = pd.DataFrame([{
+        "obj type": obj_type,
+        "pc match method": pc_match_method,
+        "belief history": json.dumps(belief_history),
+        "n_points history": json.dumps(n_points_history),
+    }])
+
+    # Append to CSV if it exists, otherwise create it
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        df = pd.concat([df, new_row], ignore_index=True)
+    else:
+        df = new_row
+
+    df.to_csv(csv_path, index=False)
+
+    
+
+def distance_filter(clouds_msg, probs, names, thresh = 0.75):
+    pcds = [msg_to_pcd(cloud) for cloud in clouds_msg]
+    cloud_points = [np.asarray(pcd.to_legacy().points) for pcd in pcds]
+    
+    final_points, final_probs, final_names, final_msgs = [], [], [], []
+    for i, (points, prob, name, msg) in enumerate(zip(cloud_points, probs, names, clouds_msg)):
+        x_y_distances = np.linalg.norm(points[:,:2], axis=1)
+        avg_x_y_distance = np.mean(x_y_distances)
+        mean_y = np.mean(points, axis=0)[1]
+        # print(f"{points.shape=} {np.mean(points, axis=0).shape=} {np.mean(points, axis=1).shape=}")
+        if avg_x_y_distance < thresh and mean_y > -0.1:
+            final_points.append(points)
+            final_probs.append(prob)
+            final_names.append(name)
+            final_msgs.append(msg)
+            # print(f"keeping {i}: {prob} {avg_x_y_distance}m")
+        else:
+            pass
+            # print(f"discarding {i}: {prob} {avg_x_y_distance}m")
+    print(f"kept {len(final_points)}/{len(cloud_points)}")
+    
+    return final_points, final_probs, final_names, final_msgs
+
+
+
+
+def main():
+    #create behavior node
+    print("entered main")
+    node = BehaviorNode()
+    n = 25
+    for i in range(n):
+        objects = config["test_querys"]
+        
+        goal_object = "BusBar" #OrangeCover" #"BusBar" #"Nut" #"Screw"
+
+        #get initial candidates
+        node.go_home()
+        node.forget_everything()
+        node.update_head()
+        query_sucess = False
+        while not query_sucess:
+            query = node.query_objects(goal_object, threshold=0.0)
+            query_sucess = query.success
+        initial_points, initial_probs, initial_names, initial_msgs = distance_filter(query.clouds, query.probabilities, query.names)
+
+        #set up experiment params
+        sample_distances = np.arange(0.75, 0.2, -0.05)
+        print(f"\n\n\nbegining {goal_object}")
+        print(f"{max(initial_probs)=}, {min(initial_probs)=}, {len(initial_points)= }, {len(initial_names)=}, {len(initial_probs)=}")
+        initial_candidates = list(zip(initial_points, initial_probs, initial_names, initial_msgs))
+        print(initial_names)
+        cur_points, cur_prob, cur_name, cur_msg = random.choice(initial_candidates)
+        for k in range(10):
+            cur_points, cur_prob, cur_name, cur_msg = random.choice(initial_candidates)
+            print(f"{cur_name=}")
+        node.publish_pointcloud(cur_msg)
+
+        #calculate viewing point
+        centroid = np.mean(cur_points, axis=0)
+
+        #create arrays for trajectory
+        prob_trajectory = [cur_prob]
+        cur_n_points = cur_points.shape[0]
+        n_point_trajectory = [cur_n_points]
+        last_n_points = cur_n_points
+        last_prob = cur_prob
+
+        print(f"\n\n\npointing at {centroid=} {cur_prob=} {cur_name=} d={np.linalg.norm(centroid):.2f}")
+
+        #take k1 .... kn
+        for j, height in enumerate(sample_distances):
+            print(f"\n\nheight {j+1}/{len(sample_distances)} {i+1}/{n} {cur_name=}")
+            node.point_camera(centroid[0], centroid[1], centroid[2], height=height)
+            node.update_hand()
+
+            query_sucess = False
+            #make sure we have a starting point
+            query = None
+            while not query_sucess:
+                query = node.query_objects(goal_object, threshold=0.0)
+                query_sucess = query.success
+            new_names = query.names
+            print(f"{new_names=}")
+            new_probs = query.probabilities
+            new_msgs = query.clouds
+            new_pcds = [msg_to_pcd(cloud) for cloud in new_msgs]
+            new_points = [np.asarray(pcd.to_legacy().points) for pcd in new_pcds]
+            
+            cur_idx = new_names.index(cur_name)
+            new_prob = new_probs[cur_idx]
+            n_points = new_points[cur_idx].shape[0]
+            new_cloud = new_msgs[cur_idx]
+            node.publish_pointcloud(new_cloud)
+            print(f"prob:{last_prob:.2f}->{new_prob:.2f}, points:{last_n_points}->{n_points}")
+            last_prob = new_prob
+            last_n_points = n_points
+            prob_trajectory.append(new_prob)
+            n_point_trajectory.append(n_points)
+
+
+
+        save_trajectory(
+            obj_type=goal_object,
+            distance_history=list(sample_distances),
+            belief_history=prob_trajectory,
+            n_points_history=n_point_trajectory
+        )
+    
+    
+
+if __name__ == '__main__':
+    main()

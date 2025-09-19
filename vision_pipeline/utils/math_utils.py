@@ -415,3 +415,26 @@ def annotate_2d_candidates(img_np: np.ndarray, detections: dict, score_thresh: f
             draw_box(annotated_img, boxes[i], text, color)
 
     return annotated_img
+
+
+def mean_nn_dist(source: o3d.t.geometry.PointCloud,
+                 target: o3d.t.geometry.PointCloud) -> float:
+    """
+    Compute the mean nearest-neighbor distance from each point in `source`
+    to the closest point in `target`.
+    """
+    assert not source.is_empty(), "source is empty"
+    assert not target.is_empty(), "target is empty"
+
+    # Create NN search index on the target points
+    nns = o3d.core.nns.NearestNeighborSearch(target.point["positions"])
+    nns.knn_index()
+
+    # Query the nearest neighbor (k=1) for each source point
+    indices, distances = nns.knn_search(source.point["positions"], 1)
+
+    # distances is squared Euclidean distance (tensor shape [N,1])
+    distances = distances.sqrt()
+
+    # Return mean distance as Python float
+    return float(distances.mean().item())

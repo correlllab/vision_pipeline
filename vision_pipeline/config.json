@@ -1,7 +1,7 @@
 {
     "gemini_model": "gemini-2.5-flash-lite-preview-06-17",
-    "vlm_true_positive_rate": 0.51,
-    "vlm_false_negative_rate": 0.25,
+    "vlm_true_positive_rate": 0.55,
+    "vlm_false_negative_rate": 0.40,
     "gemini_max_retries": 4,
 
     "owl_min_2d_box_side": 0,
@@ -9,15 +9,19 @@
     "owlv2_discard_percentile": 0.75,
     "owlv2_sigmoid_gain": 1,
 
+
+    "yolo_world_weights": "yolov8x-worldv2_best.pt",
+
+
     "backbone": "yoloworld",
 
-    "sam2_model": "facebook/sam2-hiera-large",
+    "sam2_model": "sam2.1_hiera_large.pt",
+    "sam2_config": "sam2.1_hiera_l.yaml",
 
-
-    "min_3d_points": 20,
-    "voxel_size": 0.001,
-    "pose_expire_time": 1,
-    "change_in_pose_threshold": 0.1,
+    "min_3d_points": 500,
+    "voxel_size": 0.0000000001,
+    "pose_expire_time": 0,
+    "change_in_pose_threshold": 0.0,
     "vis_k": 10,
 
 
@@ -28,16 +32,17 @@
     "radius_radius": 0.01,
     "radius_nb_points": 50,
     
-    "remove_belief_threshold": 0.05,
-    "candidate_match_method": "mahalanobis",
+    "remove_belief_threshold": -1.0,
+    "candidate_match_method": "mean_nn",
+    "mean_nn_match_threshold": 0.10,
     "iou3d_match_threshold": 0.2,
-    "chamfer_match_threshold": 0.02,
-    "hausdorff_match_threshold": 0.05,
+    "chamfer_match_threshold": 0.10,
+    "hausdorff_match_threshold": 0.10,
     "fscore_match_threshold":0.2,
     "fscore_radius":0.01,
-    "mahalanobis_match_threshold": 0.6,
+    "mahalanobis_match_threshold": 4.0,
 
-    "visible_portion_requirement": 0.9,
+    "visible_portion_requirement": 0.99,
     "occlusion_tol":0.1,
     
     "test_querys": [
@@ -46,8 +51,13 @@
         "drill",
         "screwdriver",
         "tape measure",
-        "cat",
-        "screw"
+        "Bolt",
+        "BusBar",
+        "InteriorScrew",
+        "Nut",
+        "OrangeCover",
+        "Screw",
+        "Screw Hole"
     ],
     
     "rs_name_spaces": [

@@ -56,8 +56,7 @@ config = json.load(open(config_path, 'r'))
 
 fig_dir = os.path.join(parent_dir, 'figures')
 os.makedirs(fig_dir, exist_ok=True)
-os.makedirs(os.path.join(fig_dir, "OWLv2"), exist_ok=True)
-os.makedirs(os.path.join(fig_dir, "Gemini"), exist_ok=True)
+
 
 from API_KEYS import GEMINI_KEY
 
@@ -90,6 +89,9 @@ class Gemini_BB:
     def __init__(self):
         self.model = config["gemini_model"]
         self.client = genai.Client(api_key=GEMINI_KEY)
+        self.fig_dir = os.path.join(fig_dir, "Gemini")
+        os.makedirs(self.fig_dir, exist_ok=True)
+        
         system_instruction="""
 Given an image and a list of objects to find, Return a set of candidates for the object as bounding boxes as a JSON array with labels.
 You can identify multiple instances of the same object or no instances at all.
@@ -234,6 +236,10 @@ class OWLv2:
         self.model.to(self.device)
         self.model.eval()  # set model to evaluation mode
 
+        self.fig_dir = os.path.join(fig_dir, "OWLv2")
+        os.makedirs(self.fig_dir, exist_ok=True)
+        
+
     def get_initial_candidates(self, img, queries, debug):
         #Preprocess inputs
         inputs = self.processor(text=queries, images=img, return_tensors="pt")
@@ -337,15 +343,26 @@ class OWLv2:
         return self.__str__()
 
 class YOLO_WORLD:
-    def __init__(self, checkpoint_file="YoloWorldL.pth", config_path=None):
+    def __init__(self, weight_file=None):
         """
         Initializes the YOLO World model.
         """
-        self.model = YOLOWorld('yolov8x-worldv2.pt')
+        weight_file = config["yolo_world_weights"]
+        if weight_file is not None:
+            weight_path = os.path.join(core_dir, "ModelWeights", weight_file)
+            assert os.path.exists(weight_path), f"Weight file {weight_path} does not exist"
+            self.model = YOLOWorld(weight_path)
+            print(f"[YOLO_WORLD init] Successfully initialized with {config['yolo_world_weights']=}")
+        else:
+            self.model = YOLOWorld('yolov8x-worldv2.pt')
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.model.to(device)
 
         self.vlm_tpr = config["vlm_true_positive_rate"]
+
+        self.fig_dir = os.path.join(fig_dir, "YOLOWorld")
+        os.makedirs(self.fig_dir, exist_ok=True)
+        
 
     def predict(self, img, queries, debug):
         """
@@ -357,7 +374,8 @@ class YOLO_WORLD:
         - candidates_2d: dict mapping each query to {"boxes": [...], "probs": [...]}
         """
         self.model.set_classes(queries)
-        results = self.model.predict(img, show=False, verbose=debug)[0]
+        with torch.no_grad():
+            results = self.model.predict(img, show=False, verbose=debug, conf=0.001)[0]
         if debug:
             print(f"[YOLO_WORLD predict]{dir(results.boxes)=}")
 
@@ -365,13 +383,14 @@ class YOLO_WORLD:
         probs   = results.boxes.conf            # (N,)
         cls_ids = results.boxes.cls.long()      # (N,)
 
-        # clamp probabilities so each is at least vlm_tpr
+        # # clamp probabilities so each is at least vlm_tpr
         if isinstance(probs, torch.Tensor):
             tpr_tensor = torch.tensor(self.vlm_tpr, device=probs.device, dtype=probs.dtype)
             probs = torch.maximum(probs, tpr_tensor)
         else:
             # fallback, though ultralytics returns tensors
             probs = [max(float(p), self.vlm_tpr) for p in probs]
+            pass
 
         candidates_2d = {}
         for idx, query in enumerate(queries):
@@ -399,17 +418,22 @@ if __name__ == "__main__":
 
     queries = config["test_querys"]
     do_debug = True
-    # Test the Gemini_BB
-    gemini_bb = Gemini_BB()
-    gemini_results = gemini_bb.predict(img, queries, debug=do_debug)
-    display_2dCandidates(img, gemini_results, window_prefix="Gemini_")
+    # # Test the Gemini_BB
+    # gemini_bb = Gemini_BB()
+    # gemini_results = gemini_bb.predict(img, queries, debug=do_debug)
+    # display_2dCandidates(img, gemini_results, window_prefix="Gemini_")
 
-    # Test the OWLv2
-    owl_v2 = OWLv2()
-    owl_results = owl_v2.predict(img, queries, debug=do_debug)
-    display_2dCandidates(img, owl_results, window_prefix="OWLv2_")
+    # # Test the OWLv2
+    # owl_v2 = OWLv2()
+    # owl_results = owl_v2.predict(img, queries, debug=do_debug)
+    # display_2dCandidates(img, owl_results, window_prefix="OWLv2_")
 
-    # Test the YOLO_WORLD
-    yolo_world = YOLO_WORLD()
-    yolo_results = yolo_world.predict(img, queries, debug=do_debug)
-    display_2dCandidates(img, yolo_results, window_prefix="YOLOWorld_")
+    # # Test the YOLO_WORLD
+    # yolo_world = YOLO_WORLD()
+    # yolo_results = yolo_world.predict(img, queries, debug=do_debug)
+    # display_2dCandidates(img, yolo_results, window_prefix="YOLOWorld_")
+
+    # Test the Fine-tuned YOLO_WORLD
+    yolo_world_ft = YOLO_WORLD(weight_file="yolov8x-worldv2_best.pt")
+    yolo_ft_results = yolo_world_ft.predict(img, queries, debug=do_debug)
+    display_2dCandidates(img, yolo_ft_results, window_prefix="Finetuned YOLOWorld_")

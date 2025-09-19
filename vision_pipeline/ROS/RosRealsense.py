@@ -71,7 +71,7 @@ class RealSenseSubscriber(Node):
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
-            depth=5
+            depth=1
         )
 
         # Subscriptions
@@ -105,8 +105,12 @@ class RealSenseSubscriber(Node):
     def _rgb_callback(self, msg: CompressedImage):
         try:
             rgb_img = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            
             with self._lock:
+                # print("[REALSENSE SUB rgb] lock aquired")
                 self.latest_rgb = rgb_img
+                # print("[REALSENSE SUB rgb] lock released")
+
         except Exception as e:
             print(f"Error processing RGB image for {self.camera_name}: {e}")
 
@@ -116,27 +120,42 @@ class RealSenseSubscriber(Node):
             if depth.dtype == np.uint16:
                 depth = depth.astype(np.float32) / 1000.0
             with self._lock:
+                # print("[REALSENSE SUB depth] lock aquired")
                 self.latest_depth = depth
+                # print("[REALSENSE SUB depth] lock released")
+
         except Exception as e:
             print(f"Error processing Depth image for {self.camera_name}: {e}")
             # Set a default depth image on error
             with self._lock:
+                # print("[REALSENSE SUB depth] lock aquired")
                 self.latest_depth = np.zeros((100, 100))
+                # print("[REALSENSE SUB depth] lock released")
+
 
     def _info_callback(self, msg: CameraInfo):
         with self._lock:
+            # print("[REALSENSE SUB info] lock aquired")
             self.latest_info = msg
+            # print("[REALSENSE SUB info] lock released")
+
         source_frame = msg.header.frame_id
         #print(f"Received CameraInfo for {self.camera_name_space}: {source_frame}")
+        time.sleep(0.01)  # Give some time for TF to be available
         pose = self.tf_handler.lookup_pose(config["base_frame"],source_frame, msg.header.stamp)
 
         with self._lock:
+            # print("[REALSENSE SUB info] lock aquired")
             self.latest_pose = pose
+            # print("[REALSENSE SUB info] lock released")
+
 
     def get_data(self):
         rgb, depth, info, pose = None, None, None, None
         if self.latest_rgb is not None and self.latest_depth is not None and self.latest_info is not None:
             with self._lock:
+                # print("[REALSENSE SUB get data] lock aquired")
+
                 rgb = self.latest_rgb
                 depth = self.latest_depth
                 info = self.latest_info
@@ -147,6 +166,8 @@ class RealSenseSubscriber(Node):
                 self.latest_depth = None
                 self.latest_info = None
                 self.latest_pose = None
+                # print("[REALSENSE SUB get data] lock released")
+
         return rgb, depth, info, pose
 
     def shutdown(self):
