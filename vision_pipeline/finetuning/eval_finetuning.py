@@ -31,8 +31,8 @@ base_test_cfg = {
     "rect":True,
     "split": "test",
     "half":True,            # FP16 if supported; faster, same metrics
-    "conf":0.0,           # doesn’t affect mAP; stable P/R readout
-    "iou":0.0,              # NMS IoU (typical default)
+    "conf":0.1,           # doesn’t affect mAP; stable P/R readout
+    "iou":0.5,              # NMS IoU (typical default)
     "max_det":300,          # plenty for fasteners
     "plots":True,           # saves PR curve, confusion matrix, etc.
     "verbose":False,
@@ -59,7 +59,7 @@ base_test_cfg = {
 
 
 
-def visualize_and_save_iou(image_tensor, gt_boxes, pred_boxes, save_path, show=False):
+def visualize_and_save_predictions(image_tensor, gt_boxes, pred_boxes, save_path, show=False):
     """
     Save visualization with:
       - GT in green
@@ -94,31 +94,33 @@ def visualize_and_save_iou(image_tensor, gt_boxes, pred_boxes, save_path, show=F
     if show:
         plt.show()
     plt.close(fig)
-def get_average_IOU(
+
+
+def get_box_IOU(
     test_model,
     data_yaml: str,
     project_dir: str,
     model_name: str,
-    conf_threshold: float = 0.00,  # Lower confidence threshold
-    iou_threshold: float = 0.00,    # Lower NMS threshold
 ):
     """
-    Improved IoU computation with better handling of edge cases
+    IoU computation with Hungarian matching + per-GT IoU,
+    with proper handling of edge cases.
     """
     data_info = check_det_dataset(data_yaml)
     img_path = data_info["test"]
 
     # Build eval dataloader with improved settings
     test_cfg = base_test_cfg.copy()
-    subset = data_yaml.split("/")[-1].split(".")[0]
+    subset = os.path.splitext(os.path.basename(data_yaml))[0]
     test_cfg.update({
         "data": data_yaml,
         "project": project_dir,
         "name": model_name + "_iou" + subset,
-        "conf": conf_threshold,
-        "iou": iou_threshold,
-        "max_det": 1000,  # Increased from 300
-        "augment": False,  # Test Time Augmentation
+        "conf": test_cfg["conf"],
+        "iou": test_cfg["iou"],
+        "nms": False,
+        "max_det": 1000,
+        "augment": False,
     })
 
     cfg = get_cfg(overrides=test_cfg)
@@ -126,19 +128,17 @@ def get_average_IOU(
     cfg_dict = cfg2dict(cfg)
     check_cfg(cfg_dict)
 
-    dataset = build_yolo_dataset(cfg, img_path, test_cfg['batch'], data_info)
-    data_loader = build_dataloader(dataset, batch=test_cfg['batch'], workers=0)
+    dataset = build_yolo_dataset(cfg, img_path, test_cfg["batch"], data_info)
+    data_loader = build_dataloader(dataset, batch=test_cfg["batch"], workers=0)
 
     device = cfg.device
     test_model.to(device).eval()
 
+    tp_N = 0
+    tp_iou_acc = 0.0
     N = 0
     iou_acc = 0.0
-    
-    # Track statistics
     total_images = 0
-    images_with_gt = 0
-    images_with_pred = 0
 
     with torch.inference_mode():
         for batch_idx, batch in enumerate(data_loader):
@@ -146,140 +146,105 @@ def get_average_IOU(
             if images.dtype != torch.float32 or images.max() > 1:
                 images = images.float() / 255.0
 
-            # Use Test Time Augmentation for better predictions
             results = test_model(
                 images,
                 imgsz=test_cfg["imgsz"],
                 conf=test_cfg["conf"],
                 iou=test_cfg["iou"],
                 verbose=test_cfg["verbose"],
-                augment=test_cfg["augment"],  # TTA
+                augment=test_cfg["augment"],
             )
-            
+
             h, w = images.shape[2], images.shape[3]
 
             for i in range(images.shape[0]):
                 total_images += 1
-                
-                # Get predictions with better error handling
-                try:
-                    pred = results[i].boxes
-                    if pred is None or pred.xyxy.numel() == 0:
-                        pred_boxes = torch.empty(0, 4, device=device)
-                        pred_conf = torch.empty(0, device=device)
-                        pred_cls = None
-                    else:
-                        pred_boxes = pred.xyxy
-                        pred_conf = pred.conf
-                        pred_cls = pred.cls if hasattr(pred, 'cls') else None
-                except Exception as e:
-                    if DEBUG:
-                        print(f"Error getting predictions for image {i}: {e}")
+
+                # --- Predictions ---
+                pred = results[i].boxes
+                if pred is None or pred.xyxy.numel() == 0:
+                    pred_boxes = torch.empty(0, 4, device=device)
+                else:
+                    pred_boxes = pred.xyxy
+
+                # --- Ground Truth ---
+                if "batch_idx" in batch:
+                    img_mask = (batch["batch_idx"] == i)
+                    gt_n = batch["bboxes"][img_mask].to(device)
+                else:
+                    gt_n = batch["bboxes"][i].to(device)
+                    if gt_n.ndim == 1 and gt_n.numel() == 4:
+                        gt_n = gt_n.unsqueeze(0)
+
+                if gt_n.numel() == 0:
                     continue
 
-                # Get ground truth with improved error handling
-                try:
-                    if "batch_idx" in batch and batch["batch_idx"].numel() > 0:
-                        img_mask = batch["batch_idx"] == i
-                        if img_mask.sum() == 0:
-                            continue  # No GT for this image
-                        gt_n = batch["bboxes"][img_mask].to(device)
-                    else:
-                        gt_n = batch["bboxes"][i].to(device)
-                        if gt_n.ndim == 1 and gt_n.numel() == 4:
-                            gt_n = gt_n.unsqueeze(0)
-                    
-                    if gt_n.numel() == 0:
-                        continue
-                        
-                    images_with_gt += 1
-                except Exception as e:
-                    if DEBUG:
-                        print(f"Error getting GT for image {i}: {e}")
-                    continue
+                gt_boxes = xywhn2xyxy(gt_n, w=w, h=h)
+                gt_boxes[:, [0, 2]] = gt_boxes[:, [0, 2]].clamp_(0, w)
+                gt_boxes[:, [1, 3]] = gt_boxes[:, [1, 3]].clamp_(0, h)
 
-                # Convert normalized coordinates with bounds checking
-                try:
-                    gt_boxes = xywhn2xyxy(gt_n, w=w, h=h)
-                    # Ensure valid boxes
-                    valid_mask = ((gt_boxes[:, 2] > gt_boxes[:, 0]) & 
-                                 (gt_boxes[:, 3] > gt_boxes[:, 1]))
-                    gt_boxes = gt_boxes[valid_mask]
-                    
-                    if gt_boxes.numel() == 0:
-                        continue
-                        
-                    # Clamp to image bounds
-                    gt_boxes[:, [0, 2]] = gt_boxes[:, [0, 2]].clamp_(0, w)
-                    gt_boxes[:, [1, 3]] = gt_boxes[:, [1, 3]].clamp_(0, h)
-                    
-                except Exception as e:
-                    if DEBUG:
-                        print(f"Error processing GT boxes for image {i}: {e}")
-                    continue
 
-                
-                    
-                images_with_pred += 1
+                # --- Visualization ---
                 os.makedirs(os.path.join(project_dir, f"{model_name}_iou_vis"), exist_ok=True)
-                save_path = os.path.join(project_dir, f"{model_name}_iou_vis", f"batch{batch_idx}_img{i}.png")
-                visualize_and_save_iou(images[i], gt_boxes, pred_boxes, save_path, show=DEBUG)
+                save_path = os.path.join(
+                    project_dir, f"{model_name}_iou_vis", f"batch{batch_idx}_img{i}.png"
+                )
+                visualize_and_save_predictions(images[i], gt_boxes, pred_boxes, save_path, show=DEBUG)
 
-                
-                
+                # --- IoU Calculations ---
+                if pred_boxes.numel() == 0:
+                    N += gt_boxes.shape[0]  # count GT even if no preds
+                    continue
+
                 iou_mat = box_iou(pred_boxes, gt_boxes)
-                
+
+                # Per-GT best IoU
+                iou_acc += iou_mat.max(dim=0)[0].sum().item()
+                N += gt_boxes.shape[0]
+
+                # Hungarian matching for TP-only IoU
                 cost = (1.0 - iou_mat).detach().cpu().numpy()
                 r, c = linear_sum_assignment(cost)
-
                 pair_ious = iou_mat[r, c]
 
-
-                valid_matches_mask = pair_ious >= 0.5
-
-                # Get the IoUs, row indices, and column indices of the valid matches
+                valid_matches_mask = pair_ious >= 0.75
                 valid_pair_ious = pair_ious[valid_matches_mask]
-                # valid_r = r[valid_matches_mask]
-                # valid_c = c[valid_matches_mask]
 
-                # Accumulate the IoU sum using only the valid, high-quality matches
-                iou_acc += valid_pair_ious.sum().item()
+                tp_iou_acc += valid_pair_ious.sum().item()
+                tp_N += len(valid_pair_ious)
 
-                # denominator must count ALL GT boxes (matched or not)
-                N += len(valid_pair_ious)
-                
-
-            if DEBUG and batch_idx >= 2:
-                break
-
+    avg_tp_iou = tp_iou_acc / tp_N if tp_N > 0 else 0.0
     avg_iou = iou_acc / N if N > 0 else 0.0
-    
+
     if DEBUG:
-        print(f"\n=== Improved IoU Results ===")
         print(f"Total images processed: {total_images}")
-        print(f"Images with GT: {images_with_gt}")
-        print(f"Images with predictions: {images_with_pred}")
         print(f"Total GT boxes: {N}")
         print(f"Total IoU accumulated: {iou_acc:.4f}")
+        print(f"Average TP IoU: {avg_tp_iou:.4f}")
         print(f"Average IoU: {avg_iou:.4f}")
-    
-    return avg_iou
+
+    return avg_tp_iou, avg_iou
+
+
+
+
+
 def get_metrics(test_model, data_yaml, project_dir, model_name):
-    avg_iou = get_average_IOU(test_model, data_yaml, project_dir, model_name)
+    tp_iou, avg_iou = get_box_IOU(test_model, data_yaml, project_dir, model_name)
     test_cfg = base_test_cfg.copy()
     test_cfg["data"] = data_yaml
     test_cfg["project"] = project_dir
     subset = data_yaml.split("/")[-1].split(".")[0]
     test_cfg["name"] = model_name + "_val" + subset
-    
     test_metrics = test_model.val(**test_cfg)
     metric_dict = {
+        "tp_iou": tp_iou,
         "avg_iou": avg_iou,
-        "mp":   test_metrics.box.mp,       # mean precision
-        "mr":   test_metrics.box.mr,       # mean recall
-        "map":  test_metrics.box.map,      # mAP@0.50:0.95
-        "map50":test_metrics.box.map50,    # mAP@0.50
-        "map75":test_metrics.box.map75     # mAP@0.75
+        "mp":   float(test_metrics.box.mp),       # mean precision
+        "mr":   float(test_metrics.box.mr),       # mean recall
+        "map":  float(test_metrics.box.map),      # mAP@0.50:0.95
+        "map50":float(test_metrics.box.map50),    # mAP@0.50
+        "map75":float(test_metrics.box.map75)     # mAP@0.75
     }
     
     return metric_dict
