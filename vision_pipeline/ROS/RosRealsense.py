@@ -31,6 +31,7 @@ core_dir = os.path.join(parent_dir, "core")
 fig_dir = os.path.join(parent_dir, 'figures')
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
+from config import config
 if ros_dir not in sys.path:
     sys.path.insert(0, ros_dir)
 if utils_dir not in sys.path:
@@ -39,14 +40,11 @@ if core_dir not in sys.path:
     sys.path.insert(0, core_dir)
 
 
-config_path = os.path.join(parent_dir, 'config.json')
-config = json.load(open(config_path, 'r'))
-
 
 #from SAM2 import SAM2_PC
 #from BBBackBones import Gemini_BB, OWLv2
 from ros_utils import decode_compressed_depth_image, TFHandler
-from math_utils import pose_to_matrix, matrix_to_pose, annotate_2d_candidates
+from math_utils import pose_to_matrix, matrix_to_pose, display_2dCandidates
 
 
 
@@ -243,8 +241,6 @@ def TestSubscriber(args=None):
         cv2.destroyAllWindows()
 
 
-
-
 def TestFoundationModels(args=None):
     from BBBackBones import Gemini_BB, OWLv2, YOLO_WORLD 
     from SAM2 import SAM2_PC
@@ -344,10 +340,10 @@ def TestFoundationModels(args=None):
                 marker_id += 1
                 
                
-        
-        pc_pub.publish(pcd_to_msg(pcd_acc, config['base_frame']))
+        if pcd_acc is not None:
+            pc_pub.publish(pcd_to_msg(pcd_acc, config['base_frame']))
         marker_pub.publish(Marker_Arr)
-        annoted_image = annotate_2d_candidates(rgb_img, predictions_2d, score_thresh=0.0)
+        annoted_image = display_2dCandidates(rgb_img, predictions_2d, display=False, save_path=None)
         img_msg = sub.bridge.cv2_to_imgmsg(annoted_image, encoding='bgr8')
         img_msg.header.stamp = sub.get_clock().now().to_msg()
         img_msg.header.frame_id = info.header.frame_id

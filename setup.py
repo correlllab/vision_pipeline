@@ -14,7 +14,6 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         # include configuration file
-        ('share/' + package_name, [os.path.join('vision_pipeline', 'config.json')]),
         ('share/' + package_name + '/launch', ["launch/vp.launch.py", #launches vision pipeline + VP.rviz
                                                 "launch/foundation_models.launch.py" #launches foundation_models + foundation_models.rviz
                                                 ]), 
@@ -30,6 +29,7 @@ setup(
     entry_points={
         'console_scripts': [
             'camera = vision_pipeline.ROS.RosRealsense:TestSubscriber', #tests cameras in cv2
+            'calib_data = vision_pipeline.experiments.calibrate_camera:main', #moves the arms with vision
             'hz = vision_pipeline.ROS.frequency_measure:MeasureCameraFrequency', #tests subscription timing
             'foundation_models = vision_pipeline.ROS.RosRealsense:TestFoundationModels', #publishes topic to be used with FoundationModels.rviz
             'vp = vision_pipeline.ROS.RosVisionPipeline:RunVisionPipe', #executes main vision pipeline

@@ -76,10 +76,21 @@ COPY ./src/vision_pipeline/Docker/CycloneConfigs/cyclonedds_desktop.xml /etc/cyc
 ENV CYCLONEDDS_URI=file:///etc/cyclonedds_desktop.xml
 
 
+# RUN apt-get update && apt-get install -y \
+#     python3-colcon-common-extensions \
+#     python3-rosdep \
+#     python3-vcstool \
+#     ros-humble-ament-cmake \
+#     build-essential cmake git \
+#  && rm -rf /var/lib/apt/lists/*
 
 
-
-
+# WORKDIR /root
+# RUN git clone https://github.com/unitreerobotics/unitree_ros2.git
+# WORKDIR /root/unitree_ros2/cyclonedds_ws
+# RUN . /opt/ros/humble/setup.bash
+# RUN colcon build
+# WORKDIR /ros2_ws
 # Entry point script to source and conditionally build
 RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \
     echo 'set -e' >> /ros_entrypoint.sh && \

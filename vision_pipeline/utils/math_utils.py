@@ -1,50 +1,12 @@
-import torch
 import numpy as np
 import cv2
 import open3d as o3d
-from geometry_msgs.msg import Point
-from sensor_msgs.msg  import PointCloud2, PointField
-from sensor_msgs_py   import point_cloud2
-from std_msgs.msg import Header
-import struct
-
 import os
-import json
 util_dir = os.path.dirname(os.path.realpath(__file__))
 parent_dir = os.path.join(util_dir, "..")
-
-config_path = os.path.join(parent_dir, 'config.json')
-config = json.load(open(config_path, 'r'))
-
-def iou_3d(bbox1: o3d.t.geometry.AxisAlignedBoundingBox,
-           bbox2: o3d.t.geometry.AxisAlignedBoundingBox) -> float:
-    """
-    Compute the 3D IoU of two Open3D *tensor* axis-aligned bounding boxes.
-    Works regardless of device (CPU/CUDA).
-    """
-    # Pull bounds as CPU numpy arrays
-    min1 = bbox1.min_bound.cpu().numpy()
-    max1 = bbox1.max_bound.cpu().numpy()
-    min2 = bbox2.min_bound.cpu().numpy()
-    max2 = bbox2.max_bound.cpu().numpy()
-
-    # Intersection
-    inter_min = np.maximum(min1, min2)
-    inter_max = np.minimum(max1, max2)
-    inter_dims = np.clip(inter_max - inter_min, a_min=0.0, a_max=None)
-    inter_vol = float(np.prod(inter_dims))
-
-    # Volumes
-    dims1 = np.clip(max1 - min1, 0.0, None)
-    dims2 = np.clip(max2 - min2, 0.0, None)
-    vol1 = float(np.prod(dims1))
-    vol2 = float(np.prod(dims2))
-
-    # Union & IoU
-    union_vol = vol1 + vol2 - inter_vol
-    if union_vol <= 0.0:
-        return 0.0
-    return inter_vol / union_vol
+if parent_dir not in os.sys.path:
+    os.sys.path.insert(0, parent_dir)
+from config import config  # global config dictionary
 
 def pose_to_matrix(pose: np.ndarray) -> np.ndarray:
     """
@@ -83,7 +45,6 @@ def pose_to_matrix(pose: np.ndarray) -> np.ndarray:
     T[:3,  3] = [x, y, z]
     return T
 
-
 def matrix_to_pose(T: np.ndarray) -> np.ndarray:
     """
     Convert a 4×4 homogeneous matrix back into a 6-vector
@@ -120,7 +81,6 @@ def quat_to_euler(x, y, z, w):
     yaw = np.arctan2(t3, t4)
 
     return np.array([roll, pitch, yaw])
-
 
 def in_image(
     pcd: o3d.t.geometry.PointCloud,
@@ -177,7 +137,6 @@ def in_image(
 
     visible_fraction = visible_mask.sum() / float(N)
     return visible_fraction >= thr
-
 
 def is_obscured(
     pcd: o3d.t.geometry.PointCloud,
@@ -255,6 +214,63 @@ def is_obscured(
 
     return occ_frac >= thr_occ
 
+def display_2dCandidates(img, predictions, window_prefix = "", display=False, save_path=None):
+    """
+    Displays the bounding box predictions on the image.
+    Parameters:
+    - img: The input image (numpy array).
+    - predictions: Dictionary containing bounding box predictions. like
+        {
+            "query_object_1": {
+                "boxes": [[x1, y1, x2, y2], ...],
+                "probs": [prob1, prob2, ...]
+            },
+            "query_object_2": {
+                "boxes": [[x1, y1, x2, y2], ...],
+                "probs": [prob1, prob2, ...]
+            },
+            ...
+            "query_object_N": {
+                "boxes": [[x1, y1, x2, y2], ...],
+                "probs": [prob1, prob2, ...]
+            }
+        }
+    """
+    display_img = img.copy()
+    for query_object, prediction in predictions.items():
+        for bbox, prob in zip(prediction["boxes"], prediction["probs"]):
+            x_min, y_min, x_max, y_max = map(int, bbox)
+            cv2.rectangle(display_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+            cv2.putText(display_img, f"{query_object} {prob:.4f}", (x_min, y_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    if display:
+        cv2.imshow(f"{window_prefix}", display_img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+    if save_path is not None:
+        cv2.imwrite(save_path, display_img)
+    return display_img
+
+def mean_nn_dist(source: o3d.t.geometry.PointCloud,
+                 target: o3d.t.geometry.PointCloud) -> float:
+    """
+    Compute the mean nearest-neighbor distance from each point in `source`
+    to the closest point in `target`.
+    """
+    assert not source.is_empty(), "source is empty"
+    assert not target.is_empty(), "target is empty"
+
+    # Create NN search index on the target points
+    nns = o3d.core.nns.NearestNeighborSearch(target.point["positions"])
+    nns.knn_index()
+
+    # Query the nearest neighbor (k=1) for each source point
+    indices, distances = nns.knn_search(source.point["positions"], 1)
+
+    # distances is squared Euclidean distance (tensor shape [N,1])
+    distances = distances.sqrt()
+
+    # Return mean distance as Python float
+    return float(distances.mean().item())
 
 def _positions_np(pcd: o3d.t.geometry.PointCloud) -> np.ndarray:
     """Return (N,3) float64 NumPy array of positions from a tensor point cloud."""
@@ -351,90 +367,3 @@ def mahalanobis_distance(
         dist2 = float(dmu @ (np.linalg.pinv(Sigma_reg) @ dmu))
 
     return float(np.sqrt(max(dist2, 0.0)))
-
-
-def annotate_2d_candidates(img_np: np.ndarray, detections: dict, score_thresh: float = 0.0) -> np.ndarray:
-    """
-    Returns a copy of the image with boxes and labels drawn.
-    Box & text color: Red = 1 - prob, Green = prob.
-    
-    Parameters
-    ----------
-    img_np : np.ndarray
-        HxWx3 uint8 NumPy image (BGR format expected for OpenCV drawing).
-    detections : dict
-        {
-            "label1": {"boxes": [[x1,y1,x2,y2], ...], "probs": [p1, p2, ...]},
-            ...
-        }
-    score_thresh : float
-        Minimum probability for drawing a detection.
-    
-    Returns
-    -------
-    np.ndarray
-        Annotated image (BGR).
-    """
-    
-    def prob_to_color(prob: float) -> tuple:
-        """Convert probability to BGR color."""
-        r = int((1.0 - prob) * 255)
-        g = int(prob * 255)
-        return (0, g, r)  # OpenCV uses BGR
-
-    def draw_box(img, box, label_text, color, thickness=2):
-        """Draw rectangle and filled label background."""
-        x1, y1, x2, y2 = map(int, box)
-        cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness)
-
-        font       = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = max(0.4, min(img.shape[1], img.shape[0]) / 1000.0)
-        t          = max(1, thickness)
-        (tw, th), baseline = cv2.getTextSize(label_text, font, font_scale, t)
-
-        tb_x1, tb_y1 = x1, max(0, y1 - th - baseline - 3)
-        tb_x2, tb_y2 = x1 + tw + 6, tb_y1 + th + baseline + 3
-        cv2.rectangle(img, (tb_x1, tb_y1), (tb_x2, tb_y2), color, -1)
-        cv2.putText(img, label_text, (tb_x1 + 3, tb_y2 - baseline - 2),
-                    font, font_scale, (0, 0, 0), t, cv2.LINE_AA)
-
-    # Work on a copy
-    annotated_img = img_np.copy()
-
-    for label, data in detections.items():
-        boxes = data.get("boxes", [])
-        probs = data.get("probs", [])
-        n = min(len(boxes), len(probs)) if probs else len(boxes)
-
-        for i in range(n):
-            p = probs[i] if probs and i < len(probs) else 0.0
-            if p < score_thresh:
-                continue
-            color = prob_to_color(p)
-            text = f"{label} {p:.2f}"
-            draw_box(annotated_img, boxes[i], text, color)
-
-    return annotated_img
-
-
-def mean_nn_dist(source: o3d.t.geometry.PointCloud,
-                 target: o3d.t.geometry.PointCloud) -> float:
-    """
-    Compute the mean nearest-neighbor distance from each point in `source`
-    to the closest point in `target`.
-    """
-    assert not source.is_empty(), "source is empty"
-    assert not target.is_empty(), "target is empty"
-
-    # Create NN search index on the target points
-    nns = o3d.core.nns.NearestNeighborSearch(target.point["positions"])
-    nns.knn_index()
-
-    # Query the nearest neighbor (k=1) for each source point
-    indices, distances = nns.knn_search(source.point["positions"], 1)
-
-    # distances is squared Euclidean distance (tensor shape [N,1])
-    distances = distances.sqrt()
-
-    # Return mean distance as Python float
-    return float(distances.mean().item())

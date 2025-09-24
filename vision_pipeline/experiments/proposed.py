@@ -8,6 +8,7 @@ parent_dir = os.path.join(ros_dir, "..")
 utils_dir = os.path.join(parent_dir, "utils")
 core_dir = os.path.join(parent_dir, "core")
 fig_dir = os.path.join(parent_dir, 'figures')
+if
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 if ros_dir not in sys.path:

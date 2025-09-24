@@ -24,24 +24,27 @@ def pose_array_to_message(pose_array):
 
 
 class MainNode(Node):
-    def __init__(self):
+    def __init__(self, vp = True, arms = True, hands = True):
         rclpy.init()
         super().__init__('coordinator')
-        self.update_tracked_client = self.create_client(UpdateTrackedObject, 'vp_update_tracked_object')
-        self.query_client = self.create_client(Query, 'vp_query_tracked_objects')
-        self.update_belief_client = self.create_client(UpdateBeliefs, "vp_update_beliefs")
-        self.reset_beliefs_client = self.create_client(ResetBeliefs, "vp_reset_beliefs")
-        while not self.update_tracked_client.wait_for_service(timeout_sec=1.0):
-            print('Update Tracked Service not available, waiting again...')
-        while not self.query_client.wait_for_service(timeout_sec=1.0):
-            print('Query Service not available, waiting again...')
-        while not self.update_belief_client.wait_for_service(timeout_sec=1.0):
-            print("Belief update service not available")
-        self.action_client = ActionClient(
-            self,
-            DualArm,
-            'move_dual_arm'
-        )
+        if vp:
+            self.update_tracked_client = self.create_client(UpdateTrackedObject, 'vp_update_tracked_object')
+            self.query_client = self.create_client(Query, 'vp_query_tracked_objects')
+            self.update_belief_client = self.create_client(UpdateBeliefs, "vp_update_beliefs")
+            self.reset_beliefs_client = self.create_client(ResetBeliefs, "vp_reset_beliefs")
+            while not self.update_tracked_client.wait_for_service(timeout_sec=1.0):
+                print('Update Tracked Service not available, waiting again...')
+            while not self.query_client.wait_for_service(timeout_sec=1.0):
+                print('Query Service not available, waiting again...')
+            while not self.update_belief_client.wait_for_service(timeout_sec=1.0):
+                print("Belief update service not available")
+
+        if arms:
+            self.action_client = ActionClient(
+                self,
+                DualArm,
+                'move_dual_arm'
+            )
         self.hand_pub = self.create_publisher(MotorCmds, '/inspire/cmd', 10)
         self.marker_pub = self.create_publisher(Marker, "/camera_marker", 10)
 
