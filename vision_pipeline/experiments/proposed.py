@@ -34,15 +34,17 @@ def save_trajectory(
     obj_type, 
     distance_history, 
     belief_history, 
-    n_points_history
+    n_points_history,
+    tp
 ):
-    pc_match_method = "chamfer"
+    pc_match_method = "mean_nn"
     # Create a DataFrame for the new row
     new_row = pd.DataFrame([{
         "obj type": obj_type,
         "pc match method": pc_match_method,
         "belief history": json.dumps(belief_history),
         "n_points history": json.dumps(n_points_history),
+        "true positive":tp
     }])
 
     # Append to CSV if it exists, otherwise create it
@@ -56,7 +58,7 @@ def save_trajectory(
 
     
 
-def distance_filter(clouds_msg, probs, names, thresh = 0.75):
+def distance_filter(clouds_msg, probs, names, thresh = 0.85):
     pcds = [msg_to_pcd(cloud) for cloud in clouds_msg]
     cloud_points = [np.asarray(pcd.to_legacy().points) for pcd in pcds]
     
@@ -65,6 +67,8 @@ def distance_filter(clouds_msg, probs, names, thresh = 0.75):
         x_y_distances = np.linalg.norm(points[:,:2], axis=1)
         avg_x_y_distance = np.mean(x_y_distances)
         mean_y = np.mean(points, axis=0)[1]
+        print(f"{avg_x_y_distance}, {mean_y=}")
+
         # print(f"{points.shape=} {np.mean(points, axis=0).shape=} {np.mean(points, axis=1).shape=}")
         if avg_x_y_distance < thresh and mean_y > -0.1:
             final_points.append(points)
@@ -84,9 +88,11 @@ def distance_filter(clouds_msg, probs, names, thresh = 0.75):
 
 def main():
     #create behavior node
-    print("entered main")
+    print("creating behavior node")
     node = BehaviorNode()
-    n = 25
+    print("entered main")
+
+    n = 1
     for i in range(n):
         objects = config["test_querys"]
         
@@ -103,7 +109,7 @@ def main():
         initial_points, initial_probs, initial_names, initial_msgs = distance_filter(query.clouds, query.probabilities, query.names)
 
         #set up experiment params
-        sample_distances = np.arange(0.75, 0.2, -0.05)
+        sample_distances = np.arange(0.75, 0.3, -0.05)
         print(f"\n\n\nbegining {goal_object}")
         print(f"{max(initial_probs)=}, {min(initial_probs)=}, {len(initial_points)= }, {len(initial_names)=}, {len(initial_probs)=}")
         initial_candidates = list(zip(initial_points, initial_probs, initial_names, initial_msgs))
@@ -116,6 +122,9 @@ def main():
 
         #calculate viewing point
         centroid = np.mean(cur_points, axis=0)
+        centroid_dist = np.linalg.norm(cur_points-centroid, axis=1)
+        closest_idx = np.argmin(centroid_dist)
+        view_point = cur_points[closest_idx]
 
         #create arrays for trajectory
         prob_trajectory = [cur_prob]
@@ -124,31 +133,28 @@ def main():
         last_n_points = cur_n_points
         last_prob = cur_prob
 
-        print(f"\n\n\npointing at {centroid=} {cur_prob=} {cur_name=} d={np.linalg.norm(centroid):.2f}")
+        print(f"\n\n\npointing at {view_point=} {cur_prob=} {cur_name=} d={np.linalg.norm(view_point):.2f}")
 
         #take k1 .... kn
         for j, height in enumerate(sample_distances):
             print(f"\n\nheight {j+1}/{len(sample_distances)} {i+1}/{n} {cur_name=}")
-            node.point_camera(centroid[0], centroid[1], centroid[2], height=height)
+            node.point_camera(view_point[0], view_point[1], view_point[2], height=height)
+            time.sleep(1)
             node.update_hand()
 
             query_sucess = False
             #make sure we have a starting point
             query = None
             while not query_sucess:
-                query = node.query_objects(goal_object, threshold=0.0)
+                query = node.query_objects(goal_object, threshold=0.0, specific_name=cur_name)
                 query_sucess = query.success
-            new_names = query.names
-            print(f"{new_names=}")
-            new_probs = query.probabilities
-            new_msgs = query.clouds
-            new_pcds = [msg_to_pcd(cloud) for cloud in new_msgs]
-            new_points = [np.asarray(pcd.to_legacy().points) for pcd in new_pcds]
+            new_prob = query.probabilities[0]
+            new_cloud = query.clouds[0]
+            new_pcd = msg_to_pcd(new_cloud)
+            new_points = np.asarray(new_pcd.to_legacy().points)
+            n_points = new_points.shape[0]
+
             
-            cur_idx = new_names.index(cur_name)
-            new_prob = new_probs[cur_idx]
-            n_points = new_points[cur_idx].shape[0]
-            new_cloud = new_msgs[cur_idx]
             node.publish_pointcloud(new_cloud)
             print(f"prob:{last_prob:.2f}->{new_prob:.2f}, points:{last_n_points}->{n_points}")
             last_prob = new_prob
@@ -156,13 +162,20 @@ def main():
             prob_trajectory.append(new_prob)
             n_point_trajectory.append(n_points)
 
-
-
+        print(f"prob:{cur_prob:.2f}->{new_prob:.2f}, points:{cur_n_points}->{n_points}")
+        tp_inp = input("true positive y/n: ")
+        tp = None
+        if tp_inp == "n":
+            tp = False
+        else:
+            tp = True
+        print(f"{tp_inp=} {tp=}")
         save_trajectory(
             obj_type=goal_object,
             distance_history=list(sample_distances),
             belief_history=prob_trajectory,
-            n_points_history=n_point_trajectory
+            n_points_history=n_point_trajectory,
+            tp=tp
         )
     
     
