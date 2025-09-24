@@ -3,16 +3,15 @@ import time
 import numpy as np
 import os
 import sys
-import random
-experiment_dir = os.path.dirname(os.path.realpath(__file__))
-parent_dir = os.path.join(experiment_dir, "..")
+ros_dir = os.path.dirname(os.path.realpath(__file__))
+parent_dir = os.path.join(ros_dir, "..")
 utils_dir = os.path.join(parent_dir, "utils")
 core_dir = os.path.join(parent_dir, "core")
 fig_dir = os.path.join(parent_dir, 'figures')
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
-if experiment_dir not in sys.path:
-    sys.path.insert(0, experiment_dir)
+if ros_dir not in sys.path:
+    sys.path.insert(0, ros_dir)
 if utils_dir not in sys.path:
     sys.path.insert(0, utils_dir)
 if core_dir not in sys.path:
@@ -21,12 +20,11 @@ import json
 config = json.load(open(os.path.join(parent_dir, "config.json")))
 
 from ros_utils import msg_to_pcd
-from behaviors import BehaviorNode
+from behaviors import MainNode
+from open3d.t.geometry import Metric, MetricParameters
 import matplotlib
 matplotlib.use('TkAgg') # Use the Tkinter backend
 import matplotlib.pyplot as plt
-import pandas as pd
-import json
 
 
 csv_path = os.path.join(experiment_dir, "trajectories.csv")
@@ -62,8 +60,8 @@ def distance_filter(clouds_msg, probs, names, thresh = 0.85):
     pcds = [msg_to_pcd(cloud) for cloud in clouds_msg]
     cloud_points = [np.asarray(pcd.to_legacy().points) for pcd in pcds]
     
-    final_points, final_probs, final_names, final_msgs = [], [], [], []
-    for i, (points, prob, name, msg) in enumerate(zip(cloud_points, probs, names, clouds_msg)):
+    final_points, final_probs, final_o3d = [], [], []
+    for i, (points, prob, o3d_pcd) in enumerate(zip(cloud_points, probs, pcds)):
         x_y_distances = np.linalg.norm(points[:,:2], axis=1)
         avg_x_y_distance = np.mean(x_y_distances)
         mean_y = np.mean(points, axis=0)[1]
@@ -73,19 +71,22 @@ def distance_filter(clouds_msg, probs, names, thresh = 0.85):
         if avg_x_y_distance < thresh and mean_y > -0.1:
             final_points.append(points)
             final_probs.append(prob)
-            final_names.append(name)
-            final_msgs.append(msg)
+            final_o3d.append(o3d_pcd)
             # print(f"keeping {i}: {prob} {avg_x_y_distance}m")
         else:
             pass
             # print(f"discarding {i}: {prob} {avg_x_y_distance}m")
-    print(f"kept {len(final_points)}/{len(cloud_points)}")
-    
-    return final_points, final_probs, final_names, final_msgs
+    # print(f"kept {len(final_points)}/{len(cloud_points)}")
+    return final_points, final_probs, final_o3d
 
-
-
-
+def get_point_point(points):
+    highest_z = np.max(points[:,2])
+    x_y_distances = np.linalg.norm(points[:,:2], axis=1)
+    min_dist_idx = np.argmin(x_y_distances)
+    closest_point = points[min_dist_idx]
+    x = closest_point[0]
+    y = closest_point[1]
+    return x, y, highest_z
 def main():
     #create behavior node
     print("creating behavior node")
@@ -98,15 +99,28 @@ def main():
         
         goal_object = "BusBar" #OrangeCover" #"BusBar" #"Nut" #"Screw"
 
-        #get initial candidates
-        node.go_home()
-        node.forget_everything()
-        node.update_head()
+
+    sufficient_prob = 0.95
+        
+    objects = config["test_querys"]
+    last_input = ""
+    #loop to find objects over and over
+    data = {}
+    metric_params = MetricParameters()
+    while last_input != "q":
+        int_str_mapping = {str(i): obj for i, obj in enumerate(objects)}
+        print(int_str_mapping)
+        last_input = input("Enter the index of the object to query or 'q' to quit: ")
+        if last_input == 'q':
+            print("Exiting...")
+            return
+        goal_object = objects[int(last_input)]
+        data[goal_object] = {"prob_trajectories":[], "n_point_trajectories":[]}
         query_sucess = False
+        #make sure we have a starting point
         while not query_sucess:
             query = node.query_objects(goal_object, threshold=0.0)
             query_sucess = query.success
-        initial_points, initial_probs, initial_names, initial_msgs = distance_filter(query.clouds, query.probabilities, query.names)
 
         #set up experiment params
         sample_distances = np.arange(0.75, 0.3, -0.05)
@@ -126,12 +140,10 @@ def main():
         closest_idx = np.argmin(centroid_dist)
         view_point = cur_points[closest_idx]
 
-        #create arrays for trajectory
-        prob_trajectory = [cur_prob]
-        cur_n_points = cur_points.shape[0]
-        n_point_trajectory = [cur_n_points]
-        last_n_points = cur_n_points
-        last_prob = cur_prob
+            for i, height in enumerate(sample_distances):
+                print(f"height {i+1}/{len(sample_distances)}")
+                node.point_camera(centroid[0], centroid[1], centroid[2], height=height)
+                node.update_hand()
 
         print(f"\n\n\npointing at {view_point=} {cur_prob=} {cur_name=} d={np.linalg.norm(view_point):.2f}")
 

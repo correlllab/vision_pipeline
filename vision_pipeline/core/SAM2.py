@@ -6,10 +6,12 @@ import numpy as np
 import open3d as o3d
 import open3d.core as o3c
 import open3d.t.geometry as o3tg
-
+import matplotlib
+matplotlib.use("Agg")  # non-GUI backend for image writing
+import matplotlib.pyplot as plt
 import numpy as np
 import json
-
+import shutil
 import os
 
 import sys
@@ -23,20 +25,39 @@ parent_dir = os.path.join(core_dir, "..")
 utils_dir = os.path.join(parent_dir, "utils")
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
+from config import config
 if utils_dir not in sys.path:
     sys.path.insert(0, utils_dir)
 if core_dir not in sys.path:
     sys.path.insert(0, core_dir)
 
-
-config_path = os.path.join(parent_dir, 'config.json')
-config = json.load(open(config_path, 'r'))
-
 fig_dir = os.path.join(parent_dir, 'figures')
 os.makedirs(fig_dir, exist_ok=True)
-os.makedirs(os.path.join(fig_dir, "SAM2"), exist_ok=True)
 
 from math_utils import pose_to_matrix
+
+def assert_well_formed(pcds, bounding_boxes_3d, masked_rgbs, masked_depths, probs):
+    lengths = [len(pcds), len(bounding_boxes_3d), len(masked_rgbs), len(masked_depths), len(probs)]
+    if not all(l == lengths[0] for l in lengths):
+        raise ValueError(f"Lists are not well formed: {lengths=}")
+    assert isinstance(pcds, list), f"pcds is not a list: {type(pcds)}"
+    assert isinstance(bounding_boxes_3d, list), f"bounding_boxes_3d is not a list: {type(bounding_boxes_3d)}"
+    assert isinstance(masked_rgbs, list), f"masked_rgbs is not a list: {type(masked_rgbs)}"
+    assert isinstance(masked_depths, list), f"masked_depths is not a list: {type(masked_depths)}"
+    assert isinstance(probs, list), f"probs is not a list: {type(probs)}"
+    for i in range(lengths[0]):
+        pcd = pcds[i]
+        bbox = bounding_boxes_3d[i]
+        masked_rgb = masked_rgbs[i]
+        masked_depth = masked_depths[i]
+        prob = probs[i]
+        assert isinstance(pcd, o3tg.PointCloud), f"pcd is not a PointCloud: {type(pcd)}"
+        assert prob >= 0.0 and prob <= 1.0, f"prob is not in [0, 1]: {prob}"
+        assert isinstance(bbox, o3d.cuda.pybind.t.geometry.AxisAlignedBoundingBox), f"bbox is not an AxisAlignedBoundingBox: {type(bbox)}"
+        assert isinstance(masked_rgb, np.ndarray), f"masked_rgb is not a numpy array: {type(masked_rgb)}"
+        assert isinstance(masked_depth, np.ndarray), f"masked_depth is not a numpy array: {type(masked_depth)}"
+        assert masked_rgb.ndim == 3 and masked_rgb.shape[2] == 3, f"masked_rgb is not HxWx3: {masked_rgb.shape}"
+
 
 def get_points_and_colors(depths, rgbs, fx, fy, cx, cy):
     """
@@ -82,8 +103,6 @@ class SAM2_PC:
     def __init__(self):
         """
         Initializes the SAM2 model and processor.
-        Parameters:
-        - iou_th: IoU threshold for NMS
         """
         weight_path = os.path.join(core_dir, "ModelWeights", config["sam2_model"])
         config_path = os.path.join("configs", "sam2.1", config["sam2_config"])
@@ -94,8 +113,20 @@ class SAM2_PC:
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.o3dDevice = o3c.Device("CPU:0") #o3c.Device("CUDA:0")
         print(f"[SAM2_PC init] Successfully SAM2 inilitailzied using device {self.device}, Open3D device {self.o3dDevice}")
+        self.fig_dir = os.path.join(fig_dir, "SAM2")
+        if os.path.exists(self.fig_dir):
+            shutil.rmtree(self.fig_dir, ignore_errors=False)
+        self.fig_path = os.makedirs(self.fig_dir, exist_ok=True)
+        self.count = 0
 
     def get_masks(self, rgb_img, depth_img, bbox, debug):
+        """
+        Get masked rgb and depth from SAM2 for the given bounding boxes.
+        Parameters:
+        - rgb_img: RGB image
+        - depth_img: Depth image
+        - bbox: Bounding boxes
+        """
         #Run sam2 on all the boxes
         if debug:
             print(f"[SAM2_PC get_masks] rgb_img.shape = {rgb_img.shape}")
@@ -119,7 +150,7 @@ class SAM2_PC:
         if original_sam_mask.ndim == 3:
             # single mask → add batch axis
             original_sam_mask = original_sam_mask[np.newaxis, ...]
-        sam_mask = np.all(original_sam_mask, axis=1)
+        sam_mask = np.any(original_sam_mask, axis=1)
         if debug:
             print(f"[SAM2_PC get_masks] {sam_mask.shape=}")
 
@@ -147,6 +178,19 @@ class SAM2_PC:
         
         return pcd
 
+    def save_masks(self, rgb_masks, query_str):
+        side_length = np.ceil(np.sqrt(len(rgb_masks))).astype(int)
+        side_length = max(side_length, 2)
+        fig, axes = plt.subplots(side_length, side_length, figsize=(15, 15))
+        axes = axes.flatten()
+        for i, (ax, mask) in enumerate(zip(axes, rgb_masks)):
+            ax.imshow(mask)
+            ax.axis('off')
+        fig.suptitle(f"RGB Masks for {query_str}")
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.fig_dir, f"{self.count:04d}_{query_str.replace(' ', '_')}_rgb_masks.png"))
+        plt.close(fig)
+        self.count += 1
 
     def predict(self, rgb_img, depth_img, bbox, probs, intrinsics, obs_pose, debug, query_str=""):
         """
@@ -224,8 +268,10 @@ class SAM2_PC:
             new_masked_rgb.append(masked_rgb[i])
             new_masked_depth.append(masked_depth[i])
             new_probs.append(probs[i])
-
-        return pcds, bounding_boxes_3d, new_probs, masked_rgb, masked_depth
+        assert_well_formed(pcds, bounding_boxes_3d, new_masked_rgb, new_masked_depth, new_probs)
+        if len(new_masked_rgb) > 0 and config["save_figs"]:
+            self.save_masks(new_masked_rgb, query_str)
+        return pcds, bounding_boxes_3d, new_probs, new_masked_rgb, new_masked_depth
     def __str__(self):
         return f"SAM2: {self.sam_predictor.model.device}"
     def __repr__(self):

@@ -56,7 +56,7 @@ RUN pip3 install --no-cache-dir \
 
 
 
-RUN pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+RUN pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu130
 
 
 # Install SAM2 repo
@@ -76,23 +76,42 @@ COPY ./src/vision_pipeline/Docker/CycloneConfigs/cyclonedds_desktop.xml /etc/cyc
 ENV CYCLONEDDS_URI=file:///etc/cyclonedds_desktop.xml
 
 
+RUN apt-get update && apt-get install -y \
+    python3-colcon-common-extensions \
+    python3-rosdep \
+    python3-vcstool \
+    ros-humble-ament-cmake \
+    build-essential cmake git \
+ && rm -rf /var/lib/apt/lists/*
 
 
-
-
+WORKDIR /root
+RUN git clone https://github.com/unitreerobotics/unitree_ros2.git
+WORKDIR /root/unitree_ros2/cyclonedds_ws
+RUN apt-get update && apt-get install -y ros-humble-rosidl-generator-dds-idl
+RUN bash -c "source /opt/ros/humble/setup.sh && colcon build"
+WORKDIR /ros2_ws
 # Entry point script to source and conditionally build
 RUN echo '#!/usr/bin/env bash' > /ros_entrypoint.sh && \
     echo 'set -e' >> /ros_entrypoint.sh && \
     echo 'echo "Sourcing ROS 2..."' >> /ros_entrypoint.sh && \
     echo 'source /opt/ros/humble/setup.bash' >> /ros_entrypoint.sh && \
+    echo '' >> /ros_entrypoint.sh && \
+    echo 'if [ -f /root/unitree_ros2/cyclonedds_ws/install/setup.bash ]; then' >> /ros_entrypoint.sh && \
+    echo '  echo "Sourcing Unitree workspace...";' >> /ros_entrypoint.sh && \
+    echo '  source /root/unitree_ros2/cyclonedds_ws/install/setup.bash;' >> /ros_entrypoint.sh && \
+    echo 'fi' >> /ros_entrypoint.sh && \
+    echo '' >> /ros_entrypoint.sh && \
     echo 'if [ -d /ros2_ws/src/vision_pipeline ]; then' >> /ros_entrypoint.sh && \
     echo '  echo "Building vision_pipeline...";' >> /ros_entrypoint.sh && \
     echo '  colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release;' >> /ros_entrypoint.sh && \
     echo 'fi' >> /ros_entrypoint.sh && \
+    echo '' >> /ros_entrypoint.sh && \
     echo 'if [ -f /ros2_ws/install/setup.bash ]; then' >> /ros_entrypoint.sh && \
     echo '  echo "Sourcing overlay workspace...";' >> /ros_entrypoint.sh && \
     echo '  source /ros2_ws/install/setup.bash;' >> /ros_entrypoint.sh && \
     echo 'fi' >> /ros_entrypoint.sh && \
+    echo '' >> /ros_entrypoint.sh && \
     echo 'exec "$@"' >> /ros_entrypoint.sh && \
     chmod +x /ros_entrypoint.sh
 

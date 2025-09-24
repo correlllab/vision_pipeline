@@ -24,6 +24,7 @@ import torch
 from google import genai
 from google.genai import types
 import cv2
+import shutil
 from PIL import Image
 
 import json
@@ -45,35 +46,35 @@ parent_dir = os.path.join(core_dir, "..")
 utils_dir = os.path.join(parent_dir, "utils")
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
+from config import config
 if utils_dir not in sys.path:
     sys.path.insert(0, utils_dir)
 if core_dir not in sys.path:
     sys.path.insert(0, core_dir)
 
-
-config_path = os.path.join(parent_dir, 'config.json')
-config = json.load(open(config_path, 'r'))
-
 fig_dir = os.path.join(parent_dir, 'figures')
 os.makedirs(fig_dir, exist_ok=True)
 
-
+from math_utils import display_2dCandidates
 from API_KEYS import GEMINI_KEY
 
 
-def display_2dCandidates(img, predictions, window_prefix = ""):
-    for query_object, prediction in predictions.items():
-        display_img = img.copy()
-        for bbox, prob in zip(prediction["boxes"], prediction["probs"]):
-            x_min, y_min, x_max, y_max = map(int, bbox)
-            cv2.rectangle(display_img, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-            cv2.putText(display_img, f"{query_object} {prob:.4f}", (x_min, y_min - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        # Display the image with bounding boxes
-        cv2.imwrite(f"{fig_dir}/OWLv2/{window_prefix}{query_object}.png", display_img)
-        cv2.imshow(f"{window_prefix}{query_object}", display_img)
-        cv2.waitKey(1)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+def assert_candidates2d(candidates_2d):
+    """
+    Asserts that the candidates_2d dictionary is in the correct format.
+    """
+    for query_object, prediction in candidates_2d.items():
+        assert isinstance(query_object, str), f"candidates_2d key is not a string: {query_object}"
+        assert "boxes" in prediction, f"candidates_2d for {query_object} does not contain 'boxes'"
+        assert "probs" in prediction, f"candidates_2d for {query_object} does not contain 'probs'"
+        assert len(prediction["boxes"]) == len(prediction["probs"]), f"candidates_2d for {query_object} has different number of boxes and probs"
+        for bbox in prediction["boxes"]:
+            assert len(bbox) == 4, f"candidates_2d for {query_object} contains a box that does not have 4 elements: {bbox}"
+            x1, y1, x2, y2 = bbox
+            assert x1 < x2, f"candidates_2d for {query_object} contains a box with x1 >= x2: {bbox}"
+            assert y1 < y2, f"candidates_2d for {query_object} contains a box with y1 >= y2: {bbox}"
+        for prob in prediction["probs"]:
+            assert 0.0 <= prob <= 1.0, f"candidates_2d for {query_object} contains a prob that is not between 0 and 1: {prob}"
 
 #Class to use Gemini
 def parse_gemini_json(json_output: str):
@@ -90,7 +91,10 @@ class Gemini_BB:
         self.model = config["gemini_model"]
         self.client = genai.Client(api_key=GEMINI_KEY)
         self.fig_dir = os.path.join(fig_dir, "Gemini")
+        if os.path.exists(self.fig_dir):
+            shutil.rmtree(self.fig_dir, ignore_errors=False)
         os.makedirs(self.fig_dir, exist_ok=True)
+        self.count = 0
         
         system_instruction="""
 Given an image and a list of objects to find, Return a set of candidates for the object as bounding boxes as a JSON array with labels.
@@ -216,6 +220,11 @@ Never return masks or code fencing.
         for label in candidates_2d.keys():
             if debug:
                 print(f"[Gemini_BB predict] {label=} probs:{len(candidates_2d[label]['probs'])=} boxes:{len(candidates_2d[label]['boxes'])=}")
+        assert_candidates2d(candidates_2d)
+        if config["save_figs"]:
+            pred_path = os.path.join(self.fig_dir, f"gemini_{self.count}_candidates.png")
+            self.count += 1
+            display_2dCandidates(img, candidates_2d, window_prefix="Gemini_", display=debug, save_path=pred_path)
         return candidates_2d
 
 
@@ -237,7 +246,10 @@ class OWLv2:
         self.model.eval()  # set model to evaluation mode
 
         self.fig_dir = os.path.join(fig_dir, "OWLv2")
+        if os.path.exists(self.fig_dir):
+            shutil.rmtree(self.fig_dir, ignore_errors=False)
         os.makedirs(self.fig_dir, exist_ok=True)
+        self.count = 0
         
 
     def get_initial_candidates(self, img, queries, debug):
@@ -335,6 +347,11 @@ class OWLv2:
             candidates_2d[text_label] = {"probs": self.get_probs(percentile_scores).tolist(), "boxes": percentile_boxes.tolist()}
             if debug:
                 print(f"[Owlv2 predict] {text_label=} probs:{len(candidates_2d[text_label]['probs'])=} boxes:{len(candidates_2d[text_label]['boxes'])=}")
+        assert_candidates2d(candidates_2d)
+        if config["save_figs"]:
+            pred_path = os.path.join(self.fig_dir, f"owlv2_{self.count}_candidates.png")
+            self.count += 1
+            display_2dCandidates(img, candidates_2d, window_prefix="Owl", display=debug, save_path=pred_path)
         return candidates_2d
 
     def __str__(self):
@@ -352,16 +369,20 @@ class YOLO_WORLD:
             weight_path = os.path.join(core_dir, "ModelWeights", weight_file)
             assert os.path.exists(weight_path), f"Weight file {weight_path} does not exist"
             self.model = YOLOWorld(weight_path)
-            print(f"[YOLO_WORLD init] Successfully initialized with {config['yolo_world_weights']=}")
         else:
             self.model = YOLOWorld('yolov8x-worldv2.pt')
+        print(f"[YOLO_WORLD init] Successfully initialized with {config['yolo_world_weights']=}")
+        
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.model.to(device)
 
         self.vlm_tpr = config["vlm_true_positive_rate"]
 
         self.fig_dir = os.path.join(fig_dir, "YOLOWorld")
+        if os.path.exists(self.fig_dir):
+            shutil.rmtree(self.fig_dir, ignore_errors=False)
         os.makedirs(self.fig_dir, exist_ok=True)
+        self.count = 0
         
 
     def predict(self, img, queries, debug):
@@ -375,7 +396,7 @@ class YOLO_WORLD:
         """
         self.model.set_classes(queries)
         with torch.no_grad():
-            results = self.model.predict(img, show=False, verbose=debug, conf=0.001)[0]
+            results = self.model.predict(img, show=False, verbose=debug, conf=0.01, nms=True, iou=0.01)[0]
         if debug:
             print(f"[YOLO_WORLD predict]{dir(results.boxes)=}")
 
@@ -407,7 +428,11 @@ class YOLO_WORLD:
             }
             if debug:
                 print(f"[YOLO_WORLD predict] {query=} probs:{len(selected_probs)=} boxes:{len(selected_boxes)=}")
-
+        assert_candidates2d(candidates_2d)
+        if config["save_figs"]:
+            pred_path = os.path.join(self.fig_dir, f"yoloworld_{self.count}_candidates.png")
+            self.count += 1
+            display_2dCandidates(img, candidates_2d, window_prefix="YOLOWorld_", display=debug, save_path=pred_path)
         return candidates_2d
     
 if __name__ == "__main__":
@@ -418,22 +443,20 @@ if __name__ == "__main__":
 
     queries = config["test_querys"]
     do_debug = True
-    # # Test the Gemini_BB
-    # gemini_bb = Gemini_BB()
-    # gemini_results = gemini_bb.predict(img, queries, debug=do_debug)
-    # display_2dCandidates(img, gemini_results, window_prefix="Gemini_")
+    # Test the Gemini_BB
+    gemini_bb = Gemini_BB()
+    for i in range(3):
+        gemini_results = gemini_bb.predict(img, queries, debug=do_debug)
+        display_2dCandidates(img, gemini_results, window_prefix="Gemini_")
 
-    # # Test the OWLv2
-    # owl_v2 = OWLv2()
-    # owl_results = owl_v2.predict(img, queries, debug=do_debug)
-    # display_2dCandidates(img, owl_results, window_prefix="OWLv2_")
+    # Test the OWLv2
+    owl_v2 = OWLv2()
+    for i in range(3):
+        owl_results = owl_v2.predict(img, queries, debug=do_debug)
+        display_2dCandidates(img, owl_results, window_prefix="OWLv2_")
 
-    # # Test the YOLO_WORLD
-    # yolo_world = YOLO_WORLD()
-    # yolo_results = yolo_world.predict(img, queries, debug=do_debug)
-    # display_2dCandidates(img, yolo_results, window_prefix="YOLOWorld_")
-
-    # Test the Fine-tuned YOLO_WORLD
-    yolo_world_ft = YOLO_WORLD(weight_file="yolov8x-worldv2_best.pt")
-    yolo_ft_results = yolo_world_ft.predict(img, queries, debug=do_debug)
-    display_2dCandidates(img, yolo_ft_results, window_prefix="Finetuned YOLOWorld_")
+    # Test the YOLO_WORLD
+    yolo_world = YOLO_WORLD()
+    for i in range(3):
+        yolo_results = yolo_world.predict(img, queries, debug=do_debug)
+        display_2dCandidates(img, yolo_results, window_prefix="YOLOWorld_")

@@ -112,9 +112,6 @@ def _get_type_size(datatype):
     if datatype == PointField.FLOAT64: return 8
     return 0
 
-# ================================================================
-# pcd_to_msg  (UPDATED for o3d.t.geometry.PointCloud)
-# ================================================================
 def pcd_to_msg(pcd: o3d.t.geometry.PointCloud, frame_id: str) -> PointCloud2:
     """
     Converts an Open3D *Tensor* PointCloud (o3d.t.geometry.PointCloud) to a ROS2 PointCloud2.
@@ -187,9 +184,6 @@ def pcd_to_msg(pcd: o3d.t.geometry.PointCloud, frame_id: str) -> PointCloud2:
     msg.data = pc_struct.tobytes()
     return msg
 
-# ================================================================
-# msg_to_pcd  (UPDATED to return o3d.t.geometry.PointCloud)
-# ================================================================
 def msg_to_pcd(msg: PointCloud2) -> o3d.t.geometry.PointCloud:
     """
     Converts a ROS2 PointCloud2 message (with fields x,y,z and packed float32 'rgb')
@@ -359,7 +353,6 @@ class TFHandler:
         roll, pitch, yaw = quat_to_euler(q.x, q.y, q.z, q.w)
         
         return [t.x, t.y, t.z, roll, pitch, yaw]
-
 
 def box_to_marker(box, color, frame, id):
     box_marker = Marker()

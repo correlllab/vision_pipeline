@@ -33,14 +33,13 @@ core_dir = os.path.join(parent_dir, "core")
 fig_dir = os.path.join(parent_dir, 'figures')
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
+from config import config
 if ros_dir not in sys.path:
     sys.path.insert(0, ros_dir)
 if utils_dir not in sys.path:
     sys.path.insert(0, utils_dir)
 if core_dir not in sys.path:
     sys.path.insert(0, core_dir)
-config_path = os.path.join(parent_dir, 'config.json')
-config = json.load(open(config_path, 'r'))
 from VisionPipeline import VisionPipe
 from RosRealsense import RealSenseSubscriber
 from ros_utils import box_to_marker, text_marker, pcd_to_msg
@@ -60,7 +59,7 @@ class ROS_VisionPipe(VisionPipe, Node):
         self.pc_publishers = {}
         self._lock = threading.RLock()
         self.vis_frame = config["base_frame"]
-        self.create_timer(1.0/6.0, self.publish_viz)
+        # self.create_timer(1.0/6.0, self.publish_viz)
 
         self.next_marker_id = 1
         self.qos = QoSProfile(
@@ -173,6 +172,18 @@ class ROS_VisionPipe(VisionPipe, Node):
             print("[ROS VP query tracked] lock aquired")
             pcd_arr, prob_arr, name_arr = self.query(q, request.confidence_threshold)
             print("[ROS VP query tracked] lock released")
+        if request.pc_name != "":
+            idx = name_arr.index(request.pc_name) if request.pc_name in name_arr else -1
+            if idx == -1:
+                response.clouds = [PointCloud2()]
+                response.probabilities = [0.0]
+                response.names = [""]
+                response.success = False
+                response.message = f"No tracked objects found for query: {q} with name: {request.pc_name}"
+                return response
+            pcd_arr = [pcd_arr[idx]]
+            prob_arr = [prob_arr[idx]]
+            name_arr = [name_arr[idx]]
 
         response.clouds = [pcd_to_msg(pcd, self.vis_frame) for pcd in pcd_arr]
         response.probabilities = prob_arr

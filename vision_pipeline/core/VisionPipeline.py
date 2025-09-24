@@ -6,11 +6,13 @@ import time
 
 import sys
 
-from open3d.visualization import gui, rendering
 from open3d.t.geometry import Metric as o3dMetrics
 from open3d.t.geometry import MetricParameters as MetricParameters
 
-import cv2
+
+import matplotlib
+matplotlib.use("Agg")  # non-GUI backend for image writing
+import matplotlib.pyplot as plt
 """
 Cheat Imports
 """
@@ -19,22 +21,20 @@ parent_dir = os.path.join(core_dir, "..")
 utils_dir = os.path.join(parent_dir, "utils")
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
+from config import config
+
 if utils_dir not in sys.path:
     sys.path.insert(0, utils_dir)
 if core_dir not in sys.path:
     sys.path.insert(0, core_dir)
 
 
-config_path = os.path.join(parent_dir, 'config.json')
-config = json.load(open(config_path, 'r'))
-
 fig_dir = os.path.join(parent_dir, 'figures')
 os.makedirs(fig_dir, exist_ok=True)
 import shutil
-shutil.rmtree(os.path.join(fig_dir, "VisionPipeline"))
-os.makedirs(os.path.join(fig_dir, "VisionPipeline"), exist_ok=True)
 
-from math_utils import iou_3d, in_image, is_obscured, mahalanobis_distance, annotate_2d_candidates, mean_nn_dist
+
+from math_utils import in_image, is_obscured, mahalanobis_distance, mean_nn_dist
 from SAM2 import SAM2_PC
 from BBBackBones import OWLv2, Gemini_BB, YOLO_WORLD
 
@@ -69,10 +69,7 @@ class VisionPipe:
         self.match_method = None
         self.match_threshold = None
         self.metric_parameters = MetricParameters(n_sampled_points=100, fscore_radius=[config["fscore_radius"]]) #n_sampled_points used for meshes. ignored for pointclouds
-        if config["candidate_match_method"] == "iou":
-            self.match_method = "iou"
-            self.match_threshold = config["iou3d_match_threshold"]
-        elif config["candidate_match_method"] == "chamfer":
+        if config["candidate_match_method"] == "chamfer":
             self.match_method = [o3dMetrics.ChamferDistance]
             self.match_threshold = config["chamfer_match_threshold"]            
         elif config["candidate_match_method"] == "hausdorff":
@@ -88,9 +85,38 @@ class VisionPipe:
             self.match_method = "mean_nn"
             self.match_threshold = config["mean_nn_match_threshold"]
         else:
-            raise ValueError(f"Unknown match method {config['candidate_match_method']=}. Please choose 'iou','chamfer','hausdorff', 'mahalanobis' or 'fscore'.")
+            raise ValueError(f"Unknown match method {config['candidate_match_method']=}. Please choose'chamfer','hausdorff', 'mahalanobis' or 'fscore'.")
 
 
+        self.fig_dir = os.path.join(fig_dir, "VisionPipeline")
+        if os.path.exists(self.fig_dir):
+            shutil.rmtree(self.fig_dir, ignore_errors=False)
+        os.makedirs(self.fig_dir, exist_ok=True)
+        self.count = 0
+
+    def save_tracked_object(self, obj_str):
+        candidates = self.tracked_objects[obj_str]
+        lengths = [len(masks) for masks in candidates["rgb_masks"]]
+        if len(lengths) == 0:
+            return
+        max_lengths = max(lengths)
+        cols = max(2, max_lengths)
+        rows = max(2, len(candidates["rgb_masks"]))
+        fig, axes = plt.subplots(rows, cols, figsize=(3*cols, 3*rows))
+        # print(f"[VisionPipeline save_tracked_objects] {type(candidates['rgb_masks'])=} {len(candidates['rgb_masks'])=}")
+        for i, mask_set in enumerate(candidates["rgb_masks"]):
+            # print(f"[VisionPipeline save_tracked_objects] {type(mask_set)=} {len(mask_set)=}")
+            for j, mask in enumerate(mask_set):
+                # print(f"[VisionPipeline save_tracked_objects] {type(mask)=} {len(mask)=}")
+                # print(f"[VisionPipeline save_tracked_objects] {type(mask[0])=} {len(mask[0])=}")
+                axes[i, j].imshow(mask[0])
+                axes[i, j].axis('off')
+                axes[i, j].set_title(f"{candidates['names'][i]}: {j}")
+        fig.suptitle(f"{obj_str} candidates")
+        save_path = os.path.join(self.fig_dir, f"{obj_str}_candidates_{self.count:03d}.png")
+        plt.savefig(save_path)
+        plt.close(fig)
+        self.count += 1
     def update(self, rgb_img, depth_img, queries, I, obs_pose, time_stamp, debug):
         """
         Generates a set of 3D predictions and then updates the tracked objects based on the new observations.
@@ -104,19 +130,19 @@ class VisionPipe:
         """
         queries = [q.lower() for q in queries]
         #throw away old poses
-        # self.pose_time_tracker = [(pose, time) for pose, time in self.pose_time_tracker if time > (time_stamp - config["pose_expire_time"])]
+        self.pose_time_tracker = [(pose, time) for pose, time in self.pose_time_tracker if time > (time_stamp - config["pose_expire_time"])]
 
         # #if the current call to update is too close to a prior, non expired call to update
-        # pose_distances = [np.linalg.norm(np.array(obs_pose) - np.array(pose)) for pose, _ in self.pose_time_tracker]
-        # if len(pose_distances) > 0 and min(pose_distances) < config["change_in_pose_threshold"] and self.update_count > 0:
-        #     return False, "Pose too close in time and distance to a previous update"
+        pose_distances = [np.linalg.norm(np.array(obs_pose) - np.array(pose)) for pose, _ in self.pose_time_tracker]
+        if len(pose_distances) > 0 and min(pose_distances) < config["change_in_pose_threshold"] and self.update_count > 0:
+            return False, "Pose too close in time and distance to a previous update"
 
         candidates_3d = self.get_candidates(rgb_img, depth_img, queries, I, obs_pose, debug)
         
         #update the tracked objects with the new predictions
         self.update_tracked_objects(candidates_3d, obs_pose, I, rgb_img, depth_img, debug=debug)
         
-        # self.remove_low_belief_objects()
+        self.remove_low_belief_objects()
         
         self.update_count += 1
         self.pose_time_tracker.append((obs_pose, time_stamp))
@@ -124,25 +150,66 @@ class VisionPipe:
         out_str = "successfully_updated"
         if debug:
             out_str+="[VisionPipe update] end update\n\n\n"
+        if config["save_figs"]:
+            for obj_str in self.tracked_objects:
+                self.save_tracked_object(obj_str)
 
         return True, "successfully updated"
     
     def get_candidates(self, rgb_img, depth_img, queries, I, obs_pose, debug):
         #get 2d predictions dict with lists of probabilities, boxes from OWLv2
         candidates_2d = self.BackBone.predict(rgb_img, queries, debug=debug)
-        annotated_img = annotate_2d_candidates(rgb_img, candidates_2d)
+        annotated_path = os.path.join(fig_dir, "VisionPipeline", f"2d_candidates_{self.update_count:03d}.png")
+        # display_2dCandidates(rgb_img, candidates_2d, display = False, save_path=annotated_path)
         # cv2.imshow("2d_candidates", annotated_img)
         # cv2.waitKey(1)
-        cv2.imwrite(os.path.join(fig_dir, "VisionPipeline", f"2d_candidates_{self.update_count:03d}.png"), annotated_img)
         #prepare the 3d predictions dict
         candidates_3d = {}
         #Will need to transform points according to robot pose
         for object_str, candidate in candidates_2d.items():
             #convert each set of [boxes, probs] to 3D point clouds
             pcds, box_3d, probs, rgb_masks, depth_masks = self.sam2.predict(rgb_img, depth_img, candidate["boxes"], candidate["probs"], I, obs_pose, debug=debug, query_str=object_str)
+            print(f"[VisionPipe get_candidates] {object_str=} {len(pcds)=} {len(box_3d)=} {len(probs)=} {len(rgb_masks)=} {len(depth_masks)=}")
+            print(f"[VisionPipe get_candidates] {object_str=} {type(pcds)=} {type(box_3d)=} {type(probs)=} {type(rgb_masks)=} {type(depth_masks)=}")
+
+            obj_candidate_boxes = []
+            obj_candidate_probs = []
+            obj_candidate_pcds = []
+            obj_candidate_rgb_masks = []
+            obj_candidate_depth_masks = []
+            while len(pcds) > 0:
+                candidate_pcd = pcds.pop()
+                candidate_box = box_3d.pop()
+                candidate_prob = probs.pop()
+                candidate_rgb_mask = rgb_masks.pop()
+                candidate_depth_mask = depth_masks.pop()
+                distances = self.get_distances(candidate_pcd, obj_candidate_pcds)
+                min_dist = min(distances) if len(distances) > 0 else float("inf")
+                min_idx = distances.index(min_dist) if len(distances) > 0 else None
+                if min_dist < self.match_threshold and min_idx is not None:
+                    #merge the point clouds
+                    merged_pcd = obj_candidate_pcds[min_idx] + candidate_pcd
+                    merged_pcd = merged_pcd.voxel_down_sample(voxel_size=config["voxel_size"])
+                    # Apply statistical outlier removal to denoise the point cloud
+                    if config["statistical_outlier_removal"]:
+                        merged_pcd, ind = merged_pcd.remove_statistical_outliers(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
+                    if config["radius_outlier_removal"]:
+                        merged_pcd, ind = merged_pcd.remove_radius_outliers(nb_points=config["radius_nb_points"], search_radius=config["radius_radius"])
+                    obj_candidate_pcds[min_idx] = merged_pcd
+                    obj_candidate_boxes[min_idx] = merged_pcd.get_axis_aligned_bounding_box()
+                    obj_candidate_probs[min_idx] = self.belief_update(obj_candidate_probs[min_idx], candidate_prob)
+                    obj_candidate_rgb_masks[min_idx].append(candidate_rgb_mask)
+                    obj_candidate_depth_masks[min_idx].append(candidate_depth_mask)
+                else:
+                    obj_candidate_boxes.append(candidate_box)
+                    obj_candidate_probs.append(candidate_prob)
+                    obj_candidate_pcds.append(candidate_pcd)
+                    obj_candidate_rgb_masks.append([candidate_rgb_mask])
+                    obj_candidate_depth_masks.append([candidate_depth_mask])
+            
 
             #populate the candidates_3d dict
-            candidates_3d[object_str] = {"boxes": box_3d, "probs": probs, "pcds": pcds, "rgb_masks": rgb_masks, "depth_masks": depth_masks}
+            candidates_3d[object_str] = {"boxes": obj_candidate_boxes, "probs": obj_candidate_probs, "pcds": obj_candidate_pcds, "rgb_masks": obj_candidate_rgb_masks, "depth_masks": obj_candidate_depth_masks}
         if debug:
             for object_str in candidates_3d:
                 print(f"[VisionPipe get_candidates]{object_str=}")
@@ -157,19 +224,24 @@ class VisionPipe:
             new_prob = 0.99
         return new_prob
 
-    def merge_candidate(self, candidate_box, candidate_prob, candidate_pcd, candidate_rgb_mask, candidate_depth_mask, obj_str, n_considered):
-        #calculate the 3D IoU with all tracked objects
+    def get_distances(self, candidate_pcd, tracked_pcds):
         distances = None
-        if self.match_method == "iou":
-            distances = [1 - iou_3d(candidate_box, box) for box in self.tracked_objects[obj_str]["boxes"][:n_considered]]
-        elif self.match_method == "mahalanobis":
-            distances = [mahalanobis_distance(candidate_pcd, tracked_pcd) for tracked_pcd in self.tracked_objects[obj_str]["pcds"][:n_considered]]
+        if self.match_method == "mahalanobis":
+            distances = [mahalanobis_distance(candidate_pcd, tracked_pcd) for tracked_pcd in tracked_pcds]
         elif self.match_method == "mean_nn":
-            distances = [mean_nn_dist(candidate_pcd, tracked_pcd) for tracked_pcd in self.tracked_objects[obj_str]["pcds"][:n_considered]]
+            distances = [mean_nn_dist(candidate_pcd, tracked_pcd) for tracked_pcd in tracked_pcds]
         else:
-            distances = [candidate_pcd.compute_metrics(tracked_pcd, self.match_method, self.metric_parameters).item() for tracked_pcd in self.tracked_objects[obj_str]["pcds"][:n_considered]]
+            distances = [candidate_pcd.compute_metrics(tracked_pcd, self.match_method, self.metric_parameters).item() for tracked_pcd in tracked_pcds]
         if config["candidate_match_method"] == "fscore":
             distances = [1-dist for dist in distances]
+        return distances
+
+
+
+    def merge_candidate(self, candidate_box, candidate_prob, candidate_pcd, candidate_rgb_mask, candidate_depth_mask, obj_str, n_considered):
+        #calculate the 3D IoU with all tracked objects
+
+        distances = self.get_distances(candidate_pcd, self.tracked_objects[obj_str]["pcds"][:n_considered])
 
         min_dist = float("inf")
         if len(distances) > 0:
@@ -203,10 +275,10 @@ class VisionPipe:
             pcd = self.tracked_objects[obj_str]["pcds"][match_idx] + candidate_pcd
             pcd = pcd.voxel_down_sample(voxel_size=config["voxel_size"])
             # Apply statistical outlier removal to denoise the point cloud
-            # if config["statistical_outlier_removal"]:
-            #     pcd, ind = pcd.remove_statistical_outliers(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
-            # if config["radius_outlier_removal"]:
-            #     pcd, ind = pcd.remove_radius_outliers(nb_points=config["radius_nb_points"], search_radius=config["radius_radius"])
+            if config["statistical_outlier_removal"]:
+                pcd, ind = pcd.remove_statistical_outliers(nb_neighbors=config["statistical_nb_neighbors"], std_ratio=config["statistical_std_ratio"])
+            if config["radius_outlier_removal"]:
+                pcd, ind = pcd.remove_radius_outliers(nb_points=config["radius_nb_points"], search_radius=config["radius_radius"])
             self.tracked_objects[obj_str]["pcds"][match_idx] = pcd
             self.tracked_objects[obj_str]["boxes"][match_idx] = pcd.get_axis_aligned_bounding_box()
             self.tracked_objects[obj_str]["rgb_masks"][match_idx].append(candidate_rgb_mask)
@@ -239,7 +311,7 @@ class VisionPipe:
         """
         #for each candidate object in candidates_3d
         for i, (obj_str, candidates) in enumerate(candidates_3d.items()):
-            print(f"[VisionPipe update_tracked_objects] {i+1}/{len(candidates_3d)}")
+            # print(f"[VisionPipe update_tracked_objects] {i+1}/{len(candidates_3d)}")
             #if it wasnt being tracked before add all candidates to tracked objects
             if obj_str not in self.tracked_objects:
                 self.tracked_objects[obj_str] = candidates
@@ -269,8 +341,8 @@ class VisionPipe:
                     if debug:
                         print(f"[VisionPipe update_tracked_objects] tracked object {i} {self.tracked_objects[obj_str]['names'][i]} was not decayed {obj_updated=} in_image: {in_image(pcd, obs_pose, I)}, is_obscured: {is_obscured(pcd, depth_img, obs_pose, I)}")
                     continue
-                if debug:
-                    print(f"[VisionPipe update_tracked_objects] tracked object {i} {self.tracked_objects[obj_str]['names'][i]} did not match and was not in the image")
+                
+                print(f"[VisionPipe update_tracked_objects] tracked object {i} {self.tracked_objects[obj_str]['names'][i]} did not match and was not in the image")
                 p_fn = config["vlm_false_negative_rate"]
                 old_belief = self.tracked_objects[obj_str]["probs"][i]
                 new_belief = self.belief_update(tracked_prob, p_fn)
@@ -333,7 +405,7 @@ if __name__ == "__main__":
 
     vp = VisionPipe()
     
-    do_debug = True
+    do_debug = False
     def grabber_func(cam):
         data = cam.get_data()  # make sure this has a short internal timeout
         obs_pose = [0,0,0,0,0,0]
