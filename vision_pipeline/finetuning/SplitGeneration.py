@@ -77,7 +77,7 @@ def assign_split_from_name(file_name):
                 set_number = int(chunks[i + 1])
                 if "interior" in file_name.lower():
                     quad = set_number % 4
-                    if quad in (0, 2):
+                    if quad in (1, 2):
                         return "train"
                     elif quad in (3,):
                         return "val"

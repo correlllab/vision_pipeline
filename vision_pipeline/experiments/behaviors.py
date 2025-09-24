@@ -9,6 +9,8 @@ from scipy.spatial.transform import Rotation as R
 import time
 from unitree_go.msg import MotorCmds, MotorCmd
 from visualization_msgs.msg import Marker
+from sensor_msgs.msg import PointCloud2
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 
 def pose_array_to_message(pose_array):
         pose = Pose()
@@ -23,6 +25,7 @@ def pose_array_to_message(pose_array):
         return pose
 
 
+<<<<<<< HEAD
 class MainNode(Node):
     def __init__(self, vp = True, arms = True, hands = True):
         rclpy.init()
@@ -45,8 +48,43 @@ class MainNode(Node):
                 DualArm,
                 'move_dual_arm'
             )
+=======
+class BehaviorNode(Node):
+    def __init__(self):
+        rclpy.init()
+        super().__init__('coordinator')
+        self.update_tracked_client = self.create_client(UpdateTrackedObject, '/vp_update_tracked_object')
+        self.query_client = self.create_client(Query, '/vp_query_tracked_objects')
+        self.update_belief_client = self.create_client(UpdateBeliefs, "/vp_update_beliefs")
+        self.reset_beliefs_client = self.create_client(ResetBeliefs, "/vp_reset_beliefs")
+        self.forget_everything_client = self.create_client(ResetBeliefs, "/vp_forget_everything")
+        while not self.update_tracked_client.wait_for_service(timeout_sec=1.0):
+            print('Update Tracked Service not available, waiting again...')
+        while not self.query_client.wait_for_service(timeout_sec=1.0):
+            print('Query Service not available, waiting again...')
+        while not self.update_belief_client.wait_for_service(timeout_sec=1.0):
+            print("Belief update service not available")
+        while not self.reset_beliefs_client.wait_for_service(timeout_sec=1.0):
+            print("Reset belief update service not available")
+        while not self.forget_everything_client.wait_for_service(timeout_sec=1.0):
+            print("Forget Everything service not available")
+
+        self.action_client = ActionClient(
+            self,
+            DualArm,
+            'move_dual_arm'
+        )
+>>>>>>> fe598f489da5b8810561ed0d4398db2e31e6bd7b
         self.hand_pub = self.create_publisher(MotorCmds, '/inspire/cmd', 10)
         self.marker_pub = self.create_publisher(Marker, "/camera_marker", 10)
+
+
+        PC_QOS = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        self.pointcloud_pub = self.create_publisher(PointCloud2, "/experiment_pointcloud", PC_QOS)
 
 
         self.hand_length = 0.3
@@ -60,6 +98,10 @@ class MainNode(Node):
         time.sleep(1)
         self.close_hands()
         time.sleep(1)
+
+    def publish_pointcloud(self, cloud_msg):
+        self.pointcloud_pub.publish(cloud_msg)
+        print(f"point cloud published")
 
     def publish_marker(self, x,y,z):
         marker = Marker()
@@ -96,6 +138,15 @@ class MainNode(Node):
         rclpy.spin_until_future_complete(self, future)
         result = future.result()
         print(f"{result.message=}, {result.success=}")
+    
+    def forget_everything(self):
+        request = ResetBeliefs.Request()
+        print(f"sending forget request")
+        future = self.forget_everything_client.call_async(request)
+        print("request sent")
+        rclpy.spin_until_future_complete(self, future)
+        result = future.result()
+        print(f"{result.message=}, {result.success=}")
 
     def update_head(self):
         self.update_belief("/realsense/head")
@@ -109,7 +160,7 @@ class MainNode(Node):
         future = self.update_belief_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         result = future.result()
-        print(f"[update belief] {result.message=}, {result.success=}")
+        print(f"[update belief] {result.success=}")
     def set_hands(self, l_goal=None, r_goal=None):
         if l_goal is not None:
             self.l_hand = l_goal
@@ -245,9 +296,10 @@ class MainNode(Node):
         req.confidence_threshold = threshold
         print("sending query request")
         future = self.query_client.call_async(req)
+        print("query sent")
         rclpy.spin_until_future_complete(self, future)
         result = future.result()
-        print(f"{query=} result: {result.success}, message: {result.message}")
+        print(f"{query=} result: {result.success} {len(result.probabilities)=} {len(result.clouds)=} {len(result.names)=}")
         return result
 
     def send_arm_goal(self, left_arr = None, right_arr = None):
@@ -265,7 +317,7 @@ class MainNode(Node):
         self.action_client.wait_for_server()
 
         # send action
-        self.get_logger().info('Sending goal...')
+        print('Sending goal...')
         self.start_time = time.time()
         future = self.action_client.send_goal_async(
             goal_msg,
@@ -278,18 +330,19 @@ class MainNode(Node):
             return
 
         # start a cancel listener thread
-        self.get_logger().info('Goal accepted, waiting for result...')
+        # print('Goal accepted, waiting for result...')
 
 
         # wait till finish
         future_result = goal_handle.get_result_async()
         rclpy.spin_until_future_complete(self, future_result)
         result = future_result.result().result
-        self.get_logger().info(f'Final result: success = {result.success}')
-        print()
+        print(f'Final result: success = {result.success}')
+        time.sleep(1)
+        # print()
     def feedback_callback(self, feedback_msg):
         feedback = feedback_msg.feedback
-        print(f'\rLeft Error Linear: {feedback.left_error_linear:.2f} Angular: {feedback.left_error_angular:.2f}; Right Error Linear: {feedback.right_error_linear:.2f} Angular: {feedback.right_error_linear:.2f} {time.time()- self.start_time:.2f}', end="", flush=True)
+        # print(f'\rLeft Error Linear: {feedback.left_error_linear:.2f} Angular: {feedback.left_error_angular:.2f}; Right Error Linear: {feedback.right_error_linear:.2f} Angular: {feedback.right_error_linear:.2f} {time.time()- self.start_time:.2f}', end="", flush=True)
 
     def close(self):
         self.destroy_node()
