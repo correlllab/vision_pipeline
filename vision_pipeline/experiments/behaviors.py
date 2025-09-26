@@ -305,12 +305,12 @@ class MainNode(Node):
         # print('Goal accepted, waiting for result...')
 
 
-        # wait till finish
-        future_result = goal_handle.get_result_async()
-        rclpy.spin_until_future_complete(self, future_result)
-        result = future_result.result().result
-        print(f'Final result: success = {result.success}')
-        time.sleep(1)
+        # # wait till finish
+        # future_result = goal_handle.get_result_async()
+        # rclpy.spin_until_future_complete(self, future_result)
+        # result = future_result.result().result
+        # print(f'Final result: success = {result.success}')
+        # time.sleep(1)
         # print()
     def feedback_callback(self, feedback_msg):
         feedback = feedback_msg.feedback
