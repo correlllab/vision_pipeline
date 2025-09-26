@@ -92,9 +92,9 @@ class MainNode(Node):
         marker.pose.position.z = z
         marker.pose.orientation.w = 1.0
 
-        marker.scale.x = 0.1
-        marker.scale.y = 0.1
-        marker.scale.z = 0.1
+        marker.scale.x = 0.05
+        marker.scale.y = 0.05
+        marker.scale.z = 0.05
 
         marker.color.r = 0.0
         marker.color.g = 0.0
@@ -262,10 +262,11 @@ class MainNode(Node):
         result = future.result()
         return result
 
-    def query_objects(self, query, threshold):
+    def query_objects(self, query, threshold, specific_name=""):
         req = Query.Request()
         req.query = query
         req.confidence_threshold = threshold
+        req.pc_name = specific_name
         print("sending query request")
         future = self.query_client.call_async(req)
         print("query sent")
