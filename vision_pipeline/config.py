@@ -8,7 +8,7 @@ config = {
     "owlv2_discard_percentile": 0.75,
     "owlv2_sigmoid_gain": 1,
 
-    "yolo_world_weights": "yolov8x-worldv2_best.pt", #path to yolo weights contained in core/ModelWeights use None to load deafault weights
+    "yolo_world_weights": None,#"yolov8x-worldv2_best.pt", #path to yolo weights contained in core/ModelWeights use None to load deafault weights
     "backbone": "yoloworld", #choices are "yoloworld", "owlv2", "gemini"
 
     "sam2_model": "sam2.1_hiera_large.pt", #sam weights contained in core/ModelWeights
