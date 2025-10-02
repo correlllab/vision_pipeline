@@ -36,7 +36,7 @@ setup(
             'exampleclient = vision_pipeline.ROS.RosVisionPipeline:TestExampleClient', #terminal based interactionwith vision pipeline
             'openbox = vision_pipeline.experiments.OpenBoxHardCode:main', #moves the arms with vision
             'prop_exp = vision_pipeline.experiments.proposed:main', #moves the arms with vision
-
+            'test_tf = vision_pipeline.experiments.test_tf:main'
         ],
     },
 )

@@ -7,7 +7,7 @@ from scipy.spatial.transform import Rotation as Rscipy
 # --- Config ---
 pattern_size = (10, 7)   # inner corners per row/col
 square_size = 0.025      # meters
-calib_folder = "/ros2_ws/src/vision_pipeline/vision_pipeline/figures/calibration_set"
+calib_folder = "/ros2_ws/src/vision_pipeline/vision_pipeline/figures/calibration"
 intrinsics_file = os.path.join(calib_folder, "intrinsics.npz")
 
 
@@ -34,6 +34,7 @@ def main():
     for fname in sorted(glob.glob(os.path.join(calib_folder, "*_corners.npz"))):
         data = np.load(fname)
         dataset.append((data["corners"], data["pose"], fname))
+        print(data["pose"])
     print(f"Loaded {len(dataset)} samples")
 
     objp = create_object_points(pattern_size, square_size)

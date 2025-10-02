@@ -25,7 +25,7 @@ if core_dir not in sys.path:
     sys.path.insert(0, core_dir)
 if exp_dir not in sys.path:
     sys.path.insert(0, exp_dir)
-from behaviors import MainNode
+from behaviors import BehaviorNode
 from RosRealsense import RealSenseSubscriber
 
 def save_camera_info(camera_info, filepath):
@@ -79,8 +79,9 @@ def nothing(x):
 
 def main():
     rclpy.init()
+    behavior_node = BehaviorNode(vp = False)
     camera_node = RealSenseSubscriber("/realsense/left_hand")
-    intrinsic_path = os.path.join("/ros2_ws/src/vision_pipeline/vision_pipeline/figures/calibration_set", "intrinsics.npz")
+    intrinsic_path = os.path.join(fig_dir, "intrinsics.npz")
     intrinsics_made = os.path.exists(intrinsic_path)
     print("camera initialized")
     i = 0
