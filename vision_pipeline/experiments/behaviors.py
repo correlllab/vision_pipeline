@@ -11,22 +11,18 @@ from unitree_go.msg import MotorCmds, MotorCmd
 from visualization_msgs.msg import Marker
 from sensor_msgs.msg import PointCloud2
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
+import numpy as np
 
-def pose_array_to_message(pose_array):
-        pose = Pose()
-        pose.position.x = pose_array[0]
-        pose.position.y = pose_array[1]
-        pose.position.z = pose_array[2]
-        quat = R.from_euler('xyz', pose_array[3:], degrees=True).as_quat()
-        pose.orientation.x = quat[0]
-        pose.orientation.y = quat[1]
-        pose.orientation.z = quat[2]
-        pose.orientation.w = quat[3]
-        return pose
-
+def pose_to_matrix(pose_array):
+    x, y, z, roll, pitch, yaw = pose_array
+    r = R.from_euler('xyz', [roll, pitch, yaw], degrees=True)
+    matrix = np.eye(4)
+    matrix[:3, :3] = r.as_matrix()
+    matrix[:3, 3] = [x, y, z]
+    return matrix
 
 class BehaviorNode(Node):
-    def __init__(self, vp = True, arms = True, hands = True):
+    def __init__(self, vp = True):
         rclpy.init()
         super().__init__('coordinator')
         if vp:
@@ -46,15 +42,25 @@ class BehaviorNode(Node):
             while not self.forget_everything_client.wait_for_service(timeout_sec=1.0):
                 print("Forget everything service not available")
 
-        if arms:
-            self.action_client = ActionClient(
-                self,
-                DualArm,
-                'move_dual_arm'
-            )
-        self.hand_pub = self.create_publisher(MotorCmds, '/inspire/cmd', 10)
+        self.action_client = ActionClient(
+            self,
+            DualArm,
+            'move_dual_arm'
+        )
+        lM = np.eye(4)
+        lM[:3, 3] = [0.3, 0.5, 0.2]
+        rM = np.eye(4)
+        rM[:3, 3] = [0.3, -0.5, 0.2]
+        self.r_arm_mat = rM
+        self.l_arm_mat = lM
         self.marker_pub = self.create_publisher(Marker, "/camera_marker", 10)
 
+
+        self.hand_pub = self.create_publisher(MotorCmds, '/inspire/cmd', 10)
+        self.hand_length = 0.3
+        
+        self.l_hand = None
+        self.r_hand = None
 
         PC_QOS = QoSProfile(
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
@@ -64,13 +70,8 @@ class BehaviorNode(Node):
         self.pointcloud_pub = self.create_publisher(PointCloud2, "/experiment_pointcloud", PC_QOS)
 
 
-        self.hand_length = 0.3
-        self.r_arm_goal = None
-        self.l_arm_goal = None
-        self.l_hand = None
-        self.r_hand = None
+        
         self.go_home()
-
         self.open_hands()
         time.sleep(1)
         self.close_hands()
@@ -164,99 +165,32 @@ class BehaviorNode(Node):
         self.set_hands(l_goal = l_hand, r_goal = r_hand)
 
     def go_home(self):
-        
-        res = self.send_arm_goal(
-            left_arr = [0.3, 0.5, 0.2, 0, 0, 0],
-            right_arr = [0.3, -0.5, 0.2, 0, 0, 0]
+        goal_msg = DualArm.Goal()
+        goal_msg.duration = 10
+        goal_msg.keyword = "home"
+
+        self.action_client.wait_for_server()
+
+        # send action
+        print('Going home...')
+        self.start_time = time.time()
+        future = self.action_client.send_goal_async(
+            goal_msg,
+            feedback_callback=self.feedback_callback
         )
-        self.close_hands()
+        rclpy.spin_until_future_complete(self, future)
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().warn('Goal was rejected')
+            return
+
+        future_result = goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(self, future_result)
+        result = future_result.result().result
+        print()
+        print(f'Final result: success = {result.success}')
         time.sleep(1)
-
-    def point_camera(self, x, y, z, height):
-        self.publish_marker(x,y,z)
-        safe_height = 0.2
-        view_height = height + self.hand_length
-        x_offset = -0.1
-        new_x = x + x_offset
-        new_y = y
-        new_z = z + view_height
-        roll = 90
-        pitch = 90
-        yaw = 0
-
-        ready_goal = self.l_arm_goal
-        ready_goal[0] = new_x
-        ready_goal[1] = new_y
-        ready_goal[2] = new_z
-        ready_goal[3] = roll
-        ready_goal[4] = pitch
-        ready_goal[5] = yaw
-
-        if self.l_arm_goal[3] != 90 and self.l_arm_goal[4] != 90:
-            self.send_arm_goal(left_arr=ready_goal)
-        
-        final_goal = ready_goal
-        final_goal[2] -= safe_height
-        self.send_arm_goal(left_arr=final_goal)
-
-
-
-    def point_finger(self, x,y,z):
-        use_left_hand = y > 0
-
-        #first raise and turn
-        roll = 0
-        pitch = 90
-        yaw = 0
-        if use_left_hand:
-            roll = 90
-            ready_goal = self.l_arm_goal
-            ready_goal[2]+=0.3
-            ready_goal[3]=roll
-            ready_goal[4]=pitch
-            ready_goal[5]=yaw
-            self.send_arm_goal(left_arr = ready_goal)
-        else:
-            roll = 270
-
-            ready_goal = self.r_arm_goal
-            ready_goal[2]+=0.3
-            ready_goal[3]=roll
-            ready_goal[4]=pitch
-            ready_goal[5]=yaw
-            self.send_arm_goal(right_arr = ready_goal)
-
-
-        #set hands
-        if use_left_hand:
-            self.set_hands(l_goal = [0.0, 0.0, 0.0, 1.0, 0.0, 1.0])
-        else:
-            self.set_hands(r_goal = [0.0, 0.0, 0.0, 1.0, 0.0, 1.0])
-
-        #finally go to pose
-        x_new = x + 0.05
-        y_new = y
-
-        if use_left_hand:
-            y_new += 0.05
-        else:
-            y_new -= 0.05
-        
-        z_new = z + hand_length
-
-        if use_left_hand:
-            final_goal = ready_goal
-            final_goal[0] = x_new
-            final_goal[1] = y_new
-            final_goal[2] = z_new
-            self.send_arm_goal(left_arr=final_goal)
-        else:
-            final_goal = ready_goal
-            final_goal[0] = x_new
-            final_goal[1] = y_new
-            final_goal[2] = z_new
-            self.send_arm_goal(right_arr=final_goal)
-        
+   
     def track_object(self, obj_name):
         req = UpdateTrackedObject.Request()
         req.object = obj_name
@@ -280,17 +214,19 @@ class BehaviorNode(Node):
         print(f"{query=} result: {result.success} {len(result.probabilities)=} {len(result.clouds)=} {len(result.names)=} {result.message=}")
         return result
 
-    def send_arm_goal(self, left_arr = None, right_arr = None):
-        if left_arr is not None:
-            self.l_arm_goal = left_arr
-        if right_arr is not None:
-            self.r_arm_goal = right_arr
-        left_target = pose_array_to_message(self.l_arm_goal)
-        right_target = pose_array_to_message(self.r_arm_goal)
+    def send_arm_goal(self, left_mat = None, right_mat = None, duration=3):
+        assert left_mat is None or left_mat.shape == (4,4)
+        assert right_mat is None or right_mat.shape == (4,4)
+        assert duration > 0 and isinstance(duration, int)
+        if left_mat is not None:
+            self.l_arm_mat = left_mat
+        if right_mat is not None:
+            self.r_arm_mat = right_mat
 
         goal_msg = DualArm.Goal()
-        goal_msg.left_target = left_target
-        goal_msg.right_target = right_target
+        goal_msg.left_target = self.l_arm_mat.reshape(-1).tolist()
+        goal_msg.right_target = self.r_arm_mat.reshape(-1).tolist()
+        goal_msg.duration = duration
 
         self.action_client.wait_for_server()
 
@@ -312,15 +248,15 @@ class BehaviorNode(Node):
 
 
         # # wait till finish
-        # future_result = goal_handle.get_result_async()
-        # rclpy.spin_until_future_complete(self, future_result)
-        # result = future_result.result().result
-        # print(f'Final result: success = {result.success}')
-        # time.sleep(1)
-        # print()
+        future_result = goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(self, future_result)
+        result = future_result.result().result
+        print()
+        print(f'Final result: success = {result.success}')
+        time.sleep(1)
     def feedback_callback(self, feedback_msg):
         feedback = feedback_msg.feedback
-        # print(f'\rLeft Error Linear: {feedback.left_error_linear:.2f} Angular: {feedback.left_error_angular:.2f}; Right Error Linear: {feedback.right_error_linear:.2f} Angular: {feedback.right_error_linear:.2f} {time.time()- self.start_time:.2f}', end="", flush=True)
+        print(f'\rLeft Error Linear: {feedback.left_error_linear:.2f} Angular: {feedback.left_error_angular:.2f}; Right Error Linear: {feedback.right_error_linear:.2f} Angular: {feedback.right_error_linear:.2f} T:{time.time()- self.start_time:.2f}', end="", flush=True)
 
     def close(self):
         self.destroy_node()

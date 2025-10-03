@@ -29,14 +29,13 @@ setup(
     entry_points={
         'console_scripts': [
             'camera = vision_pipeline.ROS.RosRealsense:TestSubscriber', #tests cameras in cv2
-            'calib_data = vision_pipeline.experiments.calibrate_camera:main', #moves the arms with vision
+            'calibrate_camera = vision_pipeline.experiments.calibrate_camera:main', #moves the arms with vision
             'hz = vision_pipeline.ROS.frequency_measure:MeasureCameraFrequency', #tests subscription timing
             'foundation_models = vision_pipeline.ROS.RosRealsense:TestFoundationModels', #publishes topic to be used with FoundationModels.rviz
             'vp = vision_pipeline.ROS.RosVisionPipeline:RunVisionPipe', #executes main vision pipeline
             'exampleclient = vision_pipeline.ROS.RosVisionPipeline:TestExampleClient', #terminal based interactionwith vision pipeline
             'openbox = vision_pipeline.experiments.OpenBoxHardCode:main', #moves the arms with vision
             'prop_exp = vision_pipeline.experiments.proposed:main', #moves the arms with vision
-            'test_tf = vision_pipeline.experiments.test_tf:main'
         ],
     },
 )
