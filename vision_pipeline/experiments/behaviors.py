@@ -214,7 +214,7 @@ class BehaviorNode(Node):
         print(f"{query=} result: {result.success} {len(result.probabilities)=} {len(result.clouds)=} {len(result.names)=} {result.message=}")
         return result
 
-    def send_arm_goal(self, left_mat = None, right_mat = None, duration=3):
+    def send_arm_goal(self, left_mat = None, right_mat = None, duration=3, block = True):
         assert left_mat is None or left_mat.shape == (4,4)
         assert right_mat is None or right_mat.shape == (4,4)
         assert duration > 0 and isinstance(duration, int)
@@ -246,14 +246,14 @@ class BehaviorNode(Node):
         # start a cancel listener thread
         # print('Goal accepted, waiting for result...')
 
-
-        # # wait till finish
-        future_result = goal_handle.get_result_async()
-        rclpy.spin_until_future_complete(self, future_result)
-        result = future_result.result().result
+        if block:
+            # wait till finish
+            future_result = goal_handle.get_result_async()
+            rclpy.spin_until_future_complete(self, future_result)
+            result = future_result.result().result
+            time.sleep(1)
         print()
         print(f'Final result: success = {result.success}')
-        time.sleep(1)
     def feedback_callback(self, feedback_msg):
         feedback = feedback_msg.feedback
         print(f'\rLeft Error Linear: {feedback.left_error_linear:.2f} Angular: {feedback.left_error_angular:.2f}; Right Error Linear: {feedback.right_error_linear:.2f} Angular: {feedback.right_error_linear:.2f} T:{time.time()- self.start_time:.2f}', end="", flush=True)

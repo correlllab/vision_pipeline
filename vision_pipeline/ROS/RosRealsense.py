@@ -140,7 +140,7 @@ class RealSenseSubscriber(Node):
         source_frame = msg.header.frame_id
         #print(f"Received CameraInfo for {self.camera_name_space}: {source_frame}")
         time.sleep(0.01)  # Give some time for TF to be available
-        pose = self.tf_handler.lookup_pose(config["base_frame"],source_frame, msg.header.stamp)
+        pose = self.tf_handler.lookup_transform(config["base_frame"],source_frame, msg.header.stamp)
 
         with self._lock:
             # print("[REALSENSE SUB info] lock aquired")

@@ -241,7 +241,7 @@ class SAM2_PC:
         pts_cpu = points.detach().cpu()
         cols_cpu = colors.detach().cpu()
         #for each candiate object get the point cloud unless there are too few points
-        transformation_matrix = pose_to_matrix(obs_pose)
+        transformation_matrix = obs_pose
         for i in range(B):
             pts = pts_cpu[i]
             cls = cols_cpu[i]
@@ -318,7 +318,7 @@ if __name__ == "__main__":
         for q in queries:
             if q not in bb_results:
                 continue
-            pcds, bboxes, probs, masked_rgb, masked_depth = sam2.predict(rgb_img, depth_img, bb_results[q]["boxes"], bb_results[q]["probs"], intrinsics, [0,0,0,0,0,0], debug=do_debug, query_str=q)
+            pcds, bboxes, probs, masked_rgb, masked_depth = sam2.predict(rgb_img, depth_img, bb_results[q]["boxes"], bb_results[q]["probs"], intrinsics, np.eye(4), debug=do_debug, query_str=q)
             if len(pcds) == 0:
                 # nothing valid this tick for this query
                 continue

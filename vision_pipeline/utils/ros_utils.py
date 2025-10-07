@@ -14,9 +14,8 @@ from rclpy.duration import Duration
 
 from rclpy.node import Node
 from visualization_msgs.msg import Marker
+from scipy.spatial.transform import Rotation as R
 
-
-from math_utils import quat_to_euler
 
 
 def decode_compressed_depth_image(msg) -> np.ndarray:
@@ -310,13 +309,14 @@ class TFHandler:
         # Normalize stamp to rclpy.time.Time if it's from a message header
         stamp = time_stamp if isinstance(time_stamp, Time) else Time.from_msg(time_stamp)
         #FUCKIT WE BALL
-        stamp = Time()  # latest available
-
+        # stamp = Time()  # latest available
+        source_frame = "left_wrist_yaw_link"  # TEMP HACK
         try:
             
             # Perform the lookup
             xf = self._buffer.lookup_transform(target_frame, source_frame, stamp, timeout=Duration(seconds=timeout_sec))
-            return xf.transform
+            T = transform_to_matrix(xf.transform)
+            return T
 
         except (LookupException, ConnectivityException, ExtrapolationException) as e:
             self.node.get_logger().info(
@@ -346,13 +346,11 @@ class TFHandler:
         if tf is None:
             return None
 
-        t = tf.translation
-        q = tf.rotation
-        
-        # Convert the quaternion to Euler angles
-        roll, pitch, yaw = quat_to_euler(q.x, q.y, q.z, q.w)
-        
-        return [t.x, t.y, t.z, roll, pitch, yaw]
+        t = tf[:3, 3]
+        Rmat = tf[:3, :3]
+        roll, pitch, yaw = R.from_matrix(Rmat).as_euler('xyz', degrees=False)
+
+        return [t[0], t[1], t[2], roll, pitch, yaw]
 
 def box_to_marker(box, color, frame, id):
     box_marker = Marker()

@@ -84,7 +84,7 @@ def quat_to_euler(x, y, z, w):
 
 def in_image(
     pcd: o3d.t.geometry.PointCloud,
-    obs_pose: np.ndarray,
+    obs_transform: np.ndarray,
     I: dict,
 ) -> bool:
     """
@@ -113,7 +113,7 @@ def in_image(
         return False
 
     # --- world→camera transform ---
-    T_cam2world = pose_to_matrix(obs_pose)
+    T_cam2world = obs_transform
     T_world2cam = np.linalg.inv(T_cam2world)
 
     # Vectorized homogeneous transform
@@ -141,7 +141,7 @@ def in_image(
 def is_obscured(
     pcd: o3d.t.geometry.PointCloud,
     depth_image: np.ndarray,
-    cam_pose,
+    cam_transform,
     I: dict,
 ) -> bool:
     """
@@ -172,7 +172,7 @@ def is_obscured(
         return False
 
     # --- world→camera transform ---
-    T_wc = pose_to_matrix(cam_pose)
+    T_wc = cam_transform
     T_cw = np.linalg.inv(T_wc)
 
     # --- transform to camera frame (vectorized) ---

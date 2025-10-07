@@ -133,9 +133,9 @@ class VisionPipe:
         self.pose_time_tracker = [(pose, time) for pose, time in self.pose_time_tracker if time > (time_stamp - config["pose_expire_time"])]
 
         # #if the current call to update is too close to a prior, non expired call to update
-        pose_distances = [np.linalg.norm(np.array(obs_pose) - np.array(pose)) for pose, _ in self.pose_time_tracker]
-        if len(pose_distances) > 0 and min(pose_distances) < config["change_in_pose_threshold"] and self.update_count > 0:
-            return False, "Pose too close in time and distance to a previous update"
+        #pose_distances = [np.linalg.norm(np.array(obs_pose) - np.array(pose)) for pose, _ in self.pose_time_tracker]
+        #if len(pose_distances) > 0 and min(pose_distances) < config["change_in_pose_threshold"] and self.update_count > 0:
+        #    return False, "Pose too close in time and distance to a previous update"
 
         candidates_3d = self.get_candidates(rgb_img, depth_img, queries, I, obs_pose, debug)
         
@@ -408,7 +408,7 @@ if __name__ == "__main__":
     do_debug = False
     def grabber_func(cam):
         data = cam.get_data()  # make sure this has a short internal timeout
-        obs_pose = [0,0,0,0,0,0]
+        obs_pose = np.eye(4)
         fx=data['color_intrinsics'].fx
         fy=data['color_intrinsics'].fy
         cx=data['color_intrinsics'].ppx
